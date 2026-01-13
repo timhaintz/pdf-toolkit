@@ -1,0 +1,150 @@
+{
+  "name": "pdf-toolkit",
+  "displayName": "PDF Toolkit",
+  "description": "View PDFs natively in VS Code with page-to-image extraction, zoom controls, and keyboard navigation. Export pages as PNG/JPEG screenshots for AI assistants like GitHub Copilot.",
+  "version": "1.6.2",
+  "publisher": "TimHaintz",
+  "author": {
+    "name": "Tim Haintz",
+    "url": "https://github.com/timhaintz"
+  },
+  "license": "MIT",
+  "icon": "images/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/timhaintz/pdf-toolkit"
+  },
+  "bugs": {
+    "url": "https://github.com/timhaintz/pdf-toolkit/issues"
+  },
+  "homepage": "https://github.com/timhaintz/pdf-toolkit#readme",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "keywords": [
+    "pdf",
+    "viewer",
+    "document",
+    "preview",
+    "extract",
+    "screenshot",
+    "pages",
+    "images",
+    "export"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "pdfToolkit.pdfCustomEditor",
+        "displayName": "PDF Toolkit",
+        "selector": [
+          {
+            "filenamePattern": "*.pdf"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "commands": [
+      {
+        "command": "pdfToolkit.openPdf",
+        "title": "Open PDF",
+        "category": "PDF Toolkit"
+      },
+      {
+        "command": "pdfToolkit.zoomIn",
+        "title": "Zoom In",
+        "category": "PDF Toolkit"
+      },
+      {
+        "command": "pdfToolkit.zoomOut",
+        "title": "Zoom Out",
+        "category": "PDF Toolkit"
+      },
+      {
+        "command": "pdfToolkit.resetZoom",
+        "title": "Reset Zoom",
+        "category": "PDF Toolkit"
+      },
+      {
+        "command": "pdfToolkit.screenshotMenu",
+        "title": "Screenshot Menu",
+        "category": "PDF Toolkit",
+        "icon": "$(device-camera)"
+      },
+      {
+        "command": "pdfToolkit.extractAllPages",
+        "title": "Screenshot All Pages",
+        "category": "PDF Toolkit"
+      },
+      {
+        "command": "pdfToolkit.extractCurrentPage",
+        "title": "Screenshot Current Page",
+        "category": "PDF Toolkit"
+      },
+      {
+        "command": "pdfToolkit.extractCustom",
+        "title": "Screenshot Custom...",
+        "category": "PDF Toolkit"
+      },
+      {
+        "command": "pdfToolkit.browseExtracted",
+        "title": "Browse Extracted PDFs",
+        "category": "PDF Toolkit",
+        "icon": "$(folder-library)"
+      }
+    ],
+    "configuration": {
+      "title": "PDF Toolkit",
+      "properties": {
+        "pdfToolkit.defaultZoom": {
+          "type": "number",
+          "default": 1,
+          "description": "Default zoom level for PDF documents"
+        },
+        "pdfToolkit.showToolbar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the PDF toolbar"
+        },
+        "pdfToolkit.extractionQuality": {
+          "type": "number",
+          "default": 2,
+          "description": "Quality scale for extracted images (1.0 = 72dpi, 2.0 = 144dpi, 3.0 = 216dpi)"
+        },
+        "pdfToolkit.extractionFormat": {
+          "type": "string",
+          "default": "png",
+          "enum": [
+            "png",
+            "jpeg"
+          ],
+          "description": "Image format for extracted pages"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.96.0",
+    "@typescript-eslint/eslint-plugin": "^8.19.0",
+    "@typescript-eslint/parser": "^8.19.0",
+    "eslint": "^9.17.0",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^5.4.530"
+  }
+}
