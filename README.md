@@ -20,6 +20,7 @@ A powerful PDF viewer extension for Visual Studio Code with native rendering and
 - [Configuration](#configuration)
 - [Technical Details](#technical-details)
 - [Requirements](#requirements)
+- [Responsible Use](#responsible-use)
 - [Contributing](#contributing)
 - [Issues & Feature Requests](#issues--feature-requests)
 - [License](#license)
@@ -179,6 +180,32 @@ This extension uses:
 ## Requirements
 
 - VS Code 1.96.0 or higher
+
+## Responsible Use
+
+PDF Toolkit is a tool for viewing and extracting images from PDF files. Users are responsible for ensuring their use complies with applicable laws and policies.
+
+### ✅ Generally Appropriate Use
+- Your own documents and creations
+- Public domain materials
+- Documents you have explicit permission to copy
+- Fair use purposes (research, education, commentary, criticism)
+- Work documents you're authorized to access and share
+
+### ⚠️ Consider Before Extracting
+- **Copyrighted materials** - Respect intellectual property rights
+- **Confidential documents** - Follow NDA and confidentiality agreements
+- **Personal data** - Be mindful of privacy regulations (GDPR, etc.)
+- **Corporate sensitive data** - Follow your organisation's data handling policies
+
+### 🤖 When Sharing with AI Services
+When pasting extracted images into AI assistants like GitHub Copilot:
+- Content may be processed by external servers
+- Check your organisation's AI usage policies
+- Avoid sharing confidential, proprietary, or personal data
+- Review your AI service's data handling and privacy policies
+
+**Disclaimer:** This tool does not bypass any PDF security or DRM protections. Users are solely responsible for ensuring their use of extracted content complies with copyright laws, licensing agreements, and organizational policies.
 
 ## Contributing
 
