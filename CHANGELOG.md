@@ -5,6 +5,35 @@ All notable changes to PDF Toolkit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-01-26
+
+### Added
+- **Direct Copilot Chat Integration**: New "Add to Copilot Chat" option that programmatically attaches extracted images directly to GitHub Copilot Chat using VS Code's built-in `workbench.action.chat.open` command
+
+### Changed
+- Primary workflow now uses direct attachment instead of clipboard-based `#file:` references
+- Updated README with new workflow instructions
+
+### Removed
+- Removed clipboard-based `#file:` reference method (was not working reliably with Copilot Chat)
+
+## [1.7.0] - 2026-01-26
+
+### Added
+- Auto-discovery of extracted PDFs by scanning the screenshots folder
+- "Refresh List" option in Browse Extracted PDFs menu for users to rescan the folder
+- "Change Folder Name..." option to let users customise the screenshots folder
+- New setting `pdfToolkit.screenshotsFolder` to configure the folder name (default: `PDF-Screenshots`)
+- Extracted PDFs are now sorted by most recently modified first
+
+### Changed
+- Renamed screenshots folder from `PDF Screenshots` to `PDF-Screenshots` for better compatibility with `#file:` references in Copilot Chat
+- Browse Extracted PDFs now scans the folder directly instead of relying only on workspace state history
+- Improved reliability when folders are renamed or moved
+
+### Removed
+- "Clear History" option (no longer needed as folder scanning is automatic)
+
 ## [1.6.2] - 2026-01-13
 
 ### Added

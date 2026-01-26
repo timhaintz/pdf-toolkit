@@ -119,97 +119,95 @@ export function activate(context: vscode.ExtensionContext) {
  * Browse previously extracted PDFs
  */
 async function browseExtractedPdfs(pdfEditorProvider: PdfEditorProvider): Promise<void> {
-    const extracted = pdfEditorProvider.getExtractedPdfs();
-
-    if (extracted.length === 0) {
-        vscode.window.showInformationMessage('No screenshots have been created from PDF(s). Use the Screenshot button to extract pages from a PDF.');
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) {
+        vscode.window.showInformationMessage('No workspace folder open. Open a folder first.');
         return;
     }
 
-    // Validate that folders still exist and filter out missing ones
-    const validExtracted: typeof extracted = [];
-    const missingFolders: string[] = [];
+    const folderName = PdfEditorProvider.getScreenshotsFolderName();
+    const screenshotsDir = require('path').join(
+        workspaceFolders[0].uri.fsPath, 
+        folderName
+    );
 
-    for (const pdf of extracted) {
-        try {
-            await vscode.workspace.fs.stat(vscode.Uri.file(pdf.path));
-            validExtracted.push(pdf);
-        } catch {
-            // Folder no longer exists
-            missingFolders.push(pdf.name);
-        }
-    }
+    // Scan the PDF-Screenshots folder to discover all extracted PDFs
+    const discovered = await scanScreenshotsFolder(screenshotsDir);
 
-    // Update the stored list if any folders were missing
-    if (missingFolders.length > 0) {
-        await pdfEditorProvider.context.workspaceState.update('extractedPdfs', validExtracted);
-        
-        if (missingFolders.length === extracted.length) {
-            // All folders were deleted
-            vscode.window.showInformationMessage('No screenshots have been created from PDF(s). Previously extracted folders have been removed.');
-            return;
-        } else {
-            // Some folders were deleted
-            vscode.window.showWarningMessage(`${missingFolders.length} screenshot folder(s) no longer exist and have been removed from the list.`);
-        }
-    }
-
-    if (validExtracted.length === 0) {
-        vscode.window.showInformationMessage('No screenshots have been created from PDF(s). Use the Screenshot button to extract pages from a PDF.');
+    if (discovered.length === 0) {
+        vscode.window.showInformationMessage('No screenshots found. Use the Screenshot button to extract pages from a PDF.');
         return;
     }
+
+    // Update workspace state with discovered folders
+    await pdfEditorProvider.context.workspaceState.update('extractedPdfs', discovered);
 
     interface ExtractedPdfItem extends vscode.QuickPickItem {
         pdfData?: { name: string; path: string; pageCount: number; extractedAt: string };
         action?: string;
     }
 
-    const items: ExtractedPdfItem[] = validExtracted.map(pdf => ({
+    const items: ExtractedPdfItem[] = discovered.map(pdf => ({
         label: `$(file-media) ${pdf.name}`,
         description: `${pdf.pageCount} page(s)`,
-        detail: `Extracted: ${new Date(pdf.extractedAt).toLocaleDateString()}`,
+        detail: `Last modified: ${new Date(pdf.extractedAt).toLocaleDateString()}`,
         pdfData: pdf
     }));
 
     // Add actions at the bottom
     items.push(
         { label: '', kind: vscode.QuickPickItemKind.Separator },
-        { label: '$(folder) Open PDF Screenshots Folder', action: 'openFolder' },
-        { label: '$(trash) Clear History', action: 'clearHistory' }
+        { label: '$(sync) Refresh List', action: 'refresh' },
+        { label: `$(folder) Open Folder: ${folderName}`, action: 'openFolder' },
+        { label: '$(gear) Change Folder Name...', action: 'changeFolder' }
     );
 
     const selected = await vscode.window.showQuickPick(items, {
-        title: '📁 Extracted PDFs',
+        title: `📁 Extracted PDFs (${folderName})`,
         placeHolder: 'Select a PDF to view options'
     });
 
     if (!selected) return;
 
+    if (selected.action === 'refresh') {
+        // Re-run the function to refresh
+        await browseExtractedPdfs(pdfEditorProvider);
+        return;
+    }
+
     if (selected.action === 'openFolder') {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (workspaceFolders) {
-            const screenshotsDir = vscode.Uri.file(
-                require('path').join(workspaceFolders[0].uri.fsPath, 'PDF Screenshots')
-            );
-            try {
-                await vscode.workspace.fs.stat(screenshotsDir);
-                await vscode.commands.executeCommand('revealFileInOS', screenshotsDir);
-            } catch {
-                vscode.window.showInformationMessage('The PDF Screenshots folder does not exist. Extract some PDF pages first.');
-            }
+        try {
+            await vscode.workspace.fs.stat(vscode.Uri.file(screenshotsDir));
+            await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(screenshotsDir));
+        } catch {
+            vscode.window.showInformationMessage(`The ${folderName} folder does not exist. Extract some PDF pages first.`);
         }
         return;
     }
 
-    if (selected.action === 'clearHistory') {
-        const confirm = await vscode.window.showWarningMessage(
-            'Clear the extraction history? (This does not delete the image files)',
-            'Clear History',
-            'Cancel'
-        );
-        if (confirm === 'Clear History') {
-            await pdfEditorProvider.context.workspaceState.update('extractedPdfs', []);
-            vscode.window.showInformationMessage('Extraction history cleared.');
+    if (selected.action === 'changeFolder') {
+        const newFolderName = await vscode.window.showInputBox({
+            prompt: 'Enter the new folder name for PDF screenshots',
+            value: folderName,
+            placeHolder: 'e.g., PDF-Screenshots, Screenshots, PDFImages',
+            validateInput: (value) => {
+                if (!value || value.trim().length === 0) {
+                    return 'Folder name cannot be empty';
+                }
+                // Check for invalid characters
+                if (/[<>:"|?*\\\/]/.test(value)) {
+                    return 'Folder name contains invalid characters';
+                }
+                return undefined;
+            }
+        });
+
+        if (newFolderName && newFolderName !== folderName) {
+            const config = vscode.workspace.getConfiguration('pdfToolkit');
+            await config.update('screenshotsFolder', newFolderName, vscode.ConfigurationTarget.Workspace);
+            vscode.window.showInformationMessage(`Screenshots folder changed to "${newFolderName}". Use Refresh to scan the new folder.`);
+            // Refresh the list with new folder
+            await browseExtractedPdfs(pdfEditorProvider);
         }
         return;
     }
@@ -217,6 +215,54 @@ async function browseExtractedPdfs(pdfEditorProvider: PdfEditorProvider): Promis
     if (selected.pdfData) {
         await showPdfActions(pdfEditorProvider, selected.pdfData);
     }
+}
+
+/**
+ * Scan the PDF-Screenshots folder to discover all extracted PDFs
+ */
+async function scanScreenshotsFolder(screenshotsDir: string): Promise<{ name: string; path: string; pageCount: number; extractedAt: string }[]> {
+    const discovered: { name: string; path: string; pageCount: number; extractedAt: string }[] = [];
+    
+    try {
+        const dirUri = vscode.Uri.file(screenshotsDir);
+        const entries = await vscode.workspace.fs.readDirectory(dirUri);
+        
+        for (const [name, type] of entries) {
+            if (type === vscode.FileType.Directory) {
+                const folderPath = require('path').join(screenshotsDir, name);
+                
+                // Count PNG/JPEG files in the folder
+                try {
+                    const folderUri = vscode.Uri.file(folderPath);
+                    const files = await vscode.workspace.fs.readDirectory(folderUri);
+                    const imageFiles = files.filter(([fileName]) => 
+                        fileName.endsWith('.png') || fileName.endsWith('.jpg') || fileName.endsWith('.jpeg')
+                    );
+                    
+                    if (imageFiles.length > 0) {
+                        // Get folder modification time
+                        const stat = await vscode.workspace.fs.stat(folderUri);
+                        
+                        discovered.push({
+                            name: name,
+                            path: folderPath,
+                            pageCount: imageFiles.length,
+                            extractedAt: new Date(stat.mtime).toISOString()
+                        });
+                    }
+                } catch {
+                    // Skip folders we can't read
+                }
+            }
+        }
+    } catch {
+        // Screenshots folder doesn't exist yet
+    }
+    
+    // Sort by most recently modified first
+    discovered.sort((a, b) => new Date(b.extractedAt).getTime() - new Date(a.extractedAt).getTime());
+    
+    return discovered;
 }
 
 /**
@@ -246,7 +292,7 @@ async function showPdfActions(
     }
 
     const actions: PdfActionItem[] = [
-        { label: '$(clippy) Copy for Copilot Chat', description: `Copy all ${imageFiles.length} images as #file: references`, action: 'copilot' },
+        { label: '$(comment-discussion) Add to Copilot Chat', description: `Attach all ${imageFiles.length} images to GitHub Copilot`, action: 'attachToCopilot' },
         { label: '$(folder-opened) Open Folder', description: 'Reveal folder in file explorer', action: 'folder' },
         { label: '$(file-media) View First Image', description: 'Open the first page image', action: 'viewFirst' },
         { label: '', kind: vscode.QuickPickItemKind.Separator },
@@ -261,35 +307,20 @@ async function showPdfActions(
     if (!selected) return;
 
     switch (selected.action) {
-        case 'copilot':
+        case 'attachToCopilot':
             if (imageFiles.length === 0) {
                 vscode.window.showWarningMessage('No images found in this folder.');
                 return;
             }
-            const filePaths = imageFiles.map(f => path.join(pdf.path, f));
+            // Create URIs for all image files
+            const imageUris = imageFiles.map(f => vscode.Uri.file(path.join(pdf.path, f)));
             
-            // Get workspace folder to create relative paths
-            const workspaceFolders = vscode.workspace.workspaceFolders;
-            let references: string[] = [];
-
-            if (workspaceFolders && workspaceFolders.length > 0) {
-                const workspaceRoot = workspaceFolders[0].uri.fsPath;
-                references = filePaths.map((fp: string) => {
-                    const relativePath = path.relative(workspaceRoot, fp).replace(/\\/g, '/');
-                    return `#file:${relativePath}`;
-                });
-            } else {
-                references = filePaths.map((fp: string) => `#file:${fp.replace(/\\/g, '/')}`);
-            }
-
-            await vscode.env.clipboard.writeText(references.join(' '));
-            const openChat = await vscode.window.showInformationMessage(
-                `Copied ${imageFiles.length} image reference(s) to clipboard!`,
-                'Open Copilot Chat'
-            );
-            if (openChat === 'Open Copilot Chat') {
-                await vscode.commands.executeCommand('workbench.panel.chat.view.copilot.focus');
-            }
+            // Use VS Code's built-in command to open chat with files attached
+            await vscode.commands.executeCommand('workbench.action.chat.open', {
+                query: '',
+                attachFiles: imageUris
+            });
+            vscode.window.showInformationMessage(`Added ${imageFiles.length} image(s) to Copilot Chat!`);
             break;
 
         case 'folder':

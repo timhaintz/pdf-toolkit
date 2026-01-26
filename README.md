@@ -38,8 +38,8 @@ A powerful PDF viewer extension for Visual Studio Code with native rendering and
 
 1. Open a PDF in VS Code
 2. Click **📷 Screenshot** → **All Pages** to extract pages as images
-3. Click **Copy for Copilot Chat** in the notification
-4. Paste into Copilot Chat - the AI can now see and analyze your PDF content!
+3. Click **Add to Copilot Chat** in the notification
+4. The images are automatically attached to Copilot Chat - the AI can now see and analyse your PDF content!
 
 This is perfect for:
 - 📚 Research papers and academic articles
@@ -156,7 +156,7 @@ The **Custom** option in the screenshot menu opens a 3-step wizard:
 
 ### Page Extraction
 
-When you extract pages, they are saved to a `PDF Screenshots/<pdf-name>` folder in your workspace. The extension tracks your extractions so you can easily:
+When you extract pages, they are saved to a `PDF-Screenshots/<pdf-name>` folder in your workspace. The extension tracks your extractions so you can easily:
 - Browse previously extracted PDFs via the **📁 Extracted** button
 - Copy image references for Copilot Chat with one click
 - Manage your extraction history
@@ -169,6 +169,17 @@ When you extract pages, they are saved to a `PDF Screenshots/<pdf-name>` folder 
 | `pdfToolkit.showToolbar` | `true` | Show the PDF toolbar |
 | `pdfToolkit.extractionQuality` | `2.0` | Quality scale (1.0=72dpi, 2.0=144dpi, 3.0=216dpi) |
 | `pdfToolkit.extractionFormat` | `png` | Image format (`png` or `jpeg`) |
+| `pdfToolkit.screenshotsFolder` | `PDF-Screenshots` | Folder name for storing extracted screenshots |
+
+### Changing the Screenshots Folder
+
+You can change the folder name where screenshots are saved:
+1. Click **📁 Extracted** button in the PDF viewer
+2. Select **⚙️ Change Folder Name...**
+3. Enter your preferred folder name
+4. Click **🔄 Refresh** to scan the new folder
+
+Or change it directly in VS Code Settings: search for "PDF Toolkit Screenshots Folder".
 
 ## Technical Details
 

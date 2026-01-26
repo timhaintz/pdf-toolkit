@@ -2,7 +2,7 @@
   "name": "pdf-toolkit",
   "displayName": "PDF Toolkit",
   "description": "View PDFs natively in VS Code with page-to-image extraction, zoom controls, and keyboard navigation. Export pages as PNG/JPEG screenshots for AI assistants like GitHub Copilot.",
-  "version": "1.6.2",
+  "version": "1.8.0",
   "publisher": "TimHaintz",
   "author": {
     "name": "Tim Haintz",
@@ -126,6 +126,11 @@
             "jpeg"
           ],
           "description": "Image format for extracted pages"
+        },
+        "pdfToolkit.screenshotsFolder": {
+          "type": "string",
+          "default": "PDF-Screenshots",
+          "description": "Folder name for storing extracted PDF screenshots (relative to workspace root)"
         }
       }
     }

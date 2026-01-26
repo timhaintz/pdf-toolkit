@@ -27,7 +27,14 @@ class PdfDocument implements vscode.CustomDocument {
  */
 export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<PdfDocument> {
     public static readonly viewType = 'pdfToolkit.pdfCustomEditor';
-    public static readonly SCREENSHOTS_FOLDER = 'PDF Screenshots';
+    
+    /**
+     * Get the configured screenshots folder name from settings
+     */
+    public static getScreenshotsFolderName(): string {
+        const config = vscode.workspace.getConfiguration('pdfToolkit');
+        return config.get<string>('screenshotsFolder', 'PDF-Screenshots');
+    }
     
     private _activeWebview: vscode.WebviewPanel | undefined;
     private _activeDocument: PdfDocument | undefined;
@@ -80,13 +87,14 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
      * Get the screenshots output directory
      */
     private getScreenshotsDir(): string {
+        const folderName = PdfEditorProvider.getScreenshotsFolderName();
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (workspaceFolders && workspaceFolders.length > 0) {
-            return path.join(workspaceFolders[0].uri.fsPath, PdfEditorProvider.SCREENSHOTS_FOLDER);
+            return path.join(workspaceFolders[0].uri.fsPath, folderName);
         }
         // Fallback to PDF's directory if no workspace
         if (this._activeDocument) {
-            return path.join(path.dirname(this._activeDocument.uri.fsPath), PdfEditorProvider.SCREENSHOTS_FOLDER);
+            return path.join(path.dirname(this._activeDocument.uri.fsPath), folderName);
         }
         throw new Error('No workspace or document available');
     }
@@ -417,14 +425,14 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         const action = await vscode.window.showInformationMessage(
             message,
             'Open Folder',
-            'Copy for Copilot Chat',
+            'Add to Copilot Chat',
             'Open First Image'
         );
 
         if (action === 'Open Folder') {
             await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outputDir));
-        } else if (action === 'Copy for Copilot Chat') {
-            await this.copyImagesForCopilotChat(savedFilePaths);
+        } else if (action === 'Add to Copilot Chat') {
+            await this.addImagesToCopilotChat(savedFilePaths);
         } else if (action === 'Open First Image' && savedFiles.length > 0) {
             const firstImage = path.join(outputDir, savedFiles[0]);
             await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(firstImage));
@@ -432,36 +440,18 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
     }
 
     /**
-     * Copy image file references for use in GitHub Copilot Chat
+     * Add image files directly to GitHub Copilot Chat using VS Code's built-in command
      */
-    private async copyImagesForCopilotChat(filePaths: string[]): Promise<void> {
-        // Get workspace folder to create relative paths
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        let references: string[] = [];
-
-        if (workspaceFolders && workspaceFolders.length > 0) {
-            const workspaceRoot = workspaceFolders[0].uri.fsPath;
-            references = filePaths.map(fp => {
-                // Create relative path from workspace
-                const relativePath = path.relative(workspaceRoot, fp).replace(/\\/g, '/');
-                return `#file:${relativePath}`;
-            });
-        } else {
-            // No workspace, use full paths
-            references = filePaths.map(fp => `#file:${fp.replace(/\\/g, '/')}`);
-        }
-
-        const clipboardText = references.join(' ');
-        await vscode.env.clipboard.writeText(clipboardText);
-
-        const openChatAction = await vscode.window.showInformationMessage(
-            `Copied ${filePaths.length} image reference(s) to clipboard! Paste into Copilot Chat to share context.`,
-            'Open Copilot Chat'
-        );
-
-        if (openChatAction === 'Open Copilot Chat') {
-            await vscode.commands.executeCommand('workbench.panel.chat.view.copilot.focus');
-        }
+    private async addImagesToCopilotChat(filePaths: string[]): Promise<void> {
+        // Create URIs for all image files
+        const imageUris = filePaths.map(fp => vscode.Uri.file(fp));
+        
+        // Use VS Code's built-in command to open chat with files attached
+        await vscode.commands.executeCommand('workbench.action.chat.open', {
+            query: '',
+            attachFiles: imageUris
+        });
+        vscode.window.showInformationMessage(`Added ${filePaths.length} image(s) to Copilot Chat!`);
     }
 
     private getHtmlContent(
