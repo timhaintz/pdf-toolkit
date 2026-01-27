@@ -5,6 +5,17 @@ All notable changes to PDF Toolkit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-01-27
+
+### Added
+- **Page Rotation**: Rotate pages 90° clockwise or counter-clockwise with toolbar buttons (↶ ↷) or keyboard shortcuts (`R` / `Shift+R`)
+- **Dark Mode**: Toggle dark mode for comfortable reading with the 🌙 button or `D` key - inverts colours while preserving readability
+- **Text Selection**: Select and copy text from PDFs - enabled via PDF.js text layer rendering
+
+### Changed
+- Keyboard shortcuts now skip when user is typing in input fields
+- Page rendering now includes text layer overlay for selection
+
 ## [1.8.0] - 2026-01-26
 
 ### Added

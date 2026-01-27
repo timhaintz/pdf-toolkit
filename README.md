@@ -53,10 +53,13 @@ This is perfect for:
 - **Native PDF Rendering**: View PDF files directly in VS Code using Mozilla PDF.js
 - **Full Image Support**: All embedded images, graphics, and diagrams render correctly
 - **Scroll-based Viewing**: Scroll through all pages continuously
+- **Text Selection**: Select and copy text directly from PDFs
+- **Dark Mode**: Toggle inverted colours for comfortable reading (🌙 button or `D` key)
 
 ### Navigation and Zoom
 - **Zoom Controls**: Zoom in, zoom out, fit to width, and reset zoom
 - **Page Navigation**: Jump to any page using toolbar or keyboard
+- **Page Rotation**: Rotate pages 90° clockwise (`R`) or counter-clockwise (`Shift+R`)
 - **Keyboard Shortcuts**: Full keyboard support for efficient navigation
 
 ### Page Extraction (Screenshot to Images)
@@ -115,6 +118,8 @@ Simply open any `.pdf` file in VS Code. The PDF Toolkit will automatically displ
 | └ 📄 Current Page | Extract current page as image |
 | └ 📚 All Pages | Extract all pages as images |
 | └ ⚙️ Custom... | Open multi-step wizard for custom extraction |
+| ↶ / ↷ | Rotate pages counter-clockwise / clockwise |
+| 🌙 | Toggle dark mode |
 | 📁 Extracted | Browse previously extracted PDFs |
 
 ### Keyboard Shortcuts
@@ -127,6 +132,9 @@ Simply open any `.pdf` file in VS Code. The PDF Toolkit will automatically displ
 | End | Last page |
 | + or = | Zoom in |
 | - | Zoom out |
+| R | Rotate pages clockwise (90°) |
+| Shift + R | Rotate pages counter-clockwise (90°) |
+| D | Toggle dark mode |
 
 ### Commands
 

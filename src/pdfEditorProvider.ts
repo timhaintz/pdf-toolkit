@@ -631,10 +631,57 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         .page-wrapper {
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
             background-color: white;
+            position: relative;
+        }
+
+        .page-wrapper.rotated-90 {
+            transform: rotate(90deg);
+        }
+
+        .page-wrapper.rotated-180 {
+            transform: rotate(180deg);
+        }
+
+        .page-wrapper.rotated-270 {
+            transform: rotate(270deg);
+        }
+
+        .page-content {
+            position: relative;
         }
 
         .page-canvas {
             display: block;
+        }
+
+        /* Text layer for text selection */
+        .textLayer {
+            position: absolute;
+            left: 0;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            overflow: hidden;
+            opacity: 0.2;
+            line-height: 1.0;
+            user-select: text;
+        }
+
+        .textLayer > span {
+            color: transparent;
+            position: absolute;
+            white-space: pre;
+            cursor: text;
+            transform-origin: 0% 0%;
+        }
+
+        .textLayer ::selection {
+            background: rgba(0, 0, 255, 0.3);
+        }
+
+        /* Dark mode styles */
+        #pdf-container.dark-mode .page-wrapper {
+            filter: invert(1) hue-rotate(180deg);
         }
 
         .loading {
@@ -688,6 +735,10 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         <button id="zoom-fit" title="Fit to Width">Fit Width</button>
         <button id="zoom-reset" title="Reset Zoom">Reset</button>
         <div class="toolbar-separator"></div>
+        <button id="rotate-ccw" title="Rotate Counter-Clockwise (Shift+R)">↶</button>
+        <button id="rotate-cw" title="Rotate Clockwise (R)">↷</button>
+        <button id="dark-mode" title="Toggle Dark Mode (D)">🌙</button>
+        <div class="toolbar-separator"></div>
         <div class="screenshot-menu">
             <button id="screenshot-btn" class="extract-btn" title="Take screenshot of PDF pages">📷 Screenshot ▾</button>
             <div id="screenshot-dropdown" class="screenshot-dropdown">
@@ -725,6 +776,8 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         let totalPages = 0;
         let currentScale = 1.0;
         let pageCanvases = [];
+        let currentRotation = 0; // 0, 90, 180, 270 degrees
+        let isDarkMode = false;
 
         // PDF data embedded as base64
         const pdfBase64 = '${pdfBase64}';
@@ -768,10 +821,23 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                 const pageWrapper = document.createElement('div');
                 pageWrapper.className = 'page-wrapper';
                 pageWrapper.id = 'page-' + pageNum;
+                applyRotation(pageWrapper);
+
+                // Container for canvas and text layer
+                const pageContent = document.createElement('div');
+                pageContent.className = 'page-content';
 
                 const canvas = document.createElement('canvas');
                 canvas.className = 'page-canvas';
-                pageWrapper.appendChild(canvas);
+                pageContent.appendChild(canvas);
+
+                // Text layer for text selection
+                const textLayer = document.createElement('div');
+                textLayer.className = 'textLayer';
+                textLayer.id = 'text-layer-' + pageNum;
+                pageContent.appendChild(textLayer);
+
+                pageWrapper.appendChild(pageContent);
 
                 const pageNumber = document.createElement('div');
                 pageNumber.className = 'page-number';
@@ -781,17 +847,22 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                 container.appendChild(pageWrapper);
                 pageCanvases.push(canvas);
 
-                await renderPage(pageNum, canvas);
+                await renderPage(pageNum, canvas, textLayer);
             }
         }
 
-        async function renderPage(pageNum, canvas) {
+        async function renderPage(pageNum, canvas, textLayer) {
             try {
                 const page = await pdfDoc.getPage(pageNum);
                 const viewport = page.getViewport({ scale: currentScale * 1.5 }); // 1.5x for better quality
 
                 canvas.height = viewport.height;
                 canvas.width = viewport.width;
+
+                // Set up the page content container size
+                const pageContent = canvas.parentElement;
+                pageContent.style.width = viewport.width + 'px';
+                pageContent.style.height = viewport.height + 'px';
 
                 const context = canvas.getContext('2d');
                 const renderContext = {
@@ -800,8 +871,68 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                 };
 
                 await page.render(renderContext).promise;
+
+                // Render text layer for text selection
+                if (textLayer) {
+                    textLayer.innerHTML = '';
+                    textLayer.style.width = viewport.width + 'px';
+                    textLayer.style.height = viewport.height + 'px';
+
+                    const textContent = await page.getTextContent();
+                    
+                    // Render each text item
+                    textContent.items.forEach(item => {
+                        const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+                        const span = document.createElement('span');
+                        span.textContent = item.str;
+                        span.style.left = tx[4] + 'px';
+                        span.style.top = (viewport.height - tx[5]) + 'px';
+                        span.style.fontSize = Math.abs(tx[0]) + 'px';
+                        span.style.fontFamily = item.fontName || 'sans-serif';
+                        textLayer.appendChild(span);
+                    });
+                }
             } catch (error) {
                 console.error('Error rendering page ' + pageNum + ':', error);
+            }
+        }
+
+        // Rotation functions
+        function applyRotation(pageWrapper) {
+            pageWrapper.classList.remove('rotated-90', 'rotated-180', 'rotated-270');
+            if (currentRotation === 90) {
+                pageWrapper.classList.add('rotated-90');
+            } else if (currentRotation === 180) {
+                pageWrapper.classList.add('rotated-180');
+            } else if (currentRotation === 270) {
+                pageWrapper.classList.add('rotated-270');
+            }
+        }
+
+        function rotatePages(clockwise) {
+            if (clockwise) {
+                currentRotation = (currentRotation + 90) % 360;
+            } else {
+                currentRotation = (currentRotation - 90 + 360) % 360;
+            }
+            
+            // Apply rotation to all page wrappers
+            document.querySelectorAll('.page-wrapper').forEach(wrapper => {
+                applyRotation(wrapper);
+            });
+        }
+
+        // Dark mode function
+        function toggleDarkMode() {
+            isDarkMode = !isDarkMode;
+            if (isDarkMode) {
+                container.classList.add('dark-mode');
+                document.getElementById('dark-mode').textContent = '☀️';
+                document.getElementById('dark-mode').title = 'Toggle Light Mode (D)';
+            } else {
+                container.classList.remove('dark-mode');
+                document.getElementById('dark-mode').textContent = '🌙';
+                document.getElementById('dark-mode').title = 'Toggle Dark Mode (D)';
             }
         }
 
@@ -940,6 +1071,20 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             }
         });
 
+        // Rotation event listeners
+        document.getElementById('rotate-cw').addEventListener('click', () => {
+            rotatePages(true);
+        });
+
+        document.getElementById('rotate-ccw').addEventListener('click', () => {
+            rotatePages(false);
+        });
+
+        // Dark mode event listener
+        document.getElementById('dark-mode').addEventListener('click', () => {
+            toggleDarkMode();
+        });
+
         // Screenshot dropdown menu
         const screenshotBtn = document.getElementById('screenshot-btn');
         const screenshotDropdown = document.getElementById('screenshot-dropdown');
@@ -995,6 +1140,9 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
+            // Skip shortcuts if user is typing in an input
+            if (e.target.tagName === 'INPUT') return;
+
             if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
                 if (currentPage > 1) scrollToPage(currentPage - 1);
             } else if (e.key === 'ArrowRight' || e.key === 'PageDown') {
@@ -1007,6 +1155,11 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                 updateZoom(Math.min(currentScale + 0.25, 5.0));
             } else if (e.key === '-') {
                 updateZoom(Math.max(currentScale - 0.25, 0.25));
+            } else if (e.key === 'r' || e.key === 'R') {
+                // R = rotate clockwise, Shift+R = rotate counter-clockwise
+                rotatePages(!e.shiftKey);
+            } else if (e.key === 'd' || e.key === 'D') {
+                toggleDarkMode();
             }
         });
 
