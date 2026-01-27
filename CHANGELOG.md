@@ -5,6 +5,16 @@ All notable changes to PDF Toolkit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-01-28
+
+### Added
+- **Search (Ctrl+F)**: Search within PDF documents with real-time highlighting, match count, and prev/next navigation
+- **Outline/TOC Panel**: Toggle document outline sidebar with the 📑 button or `O` key - click headings to jump to sections (available when PDF has bookmarks)
+
+### Changed
+- Toolbar now includes search bar and outline toggle button
+- Added keyboard shortcuts: `Ctrl+F` for search, `O` for outline toggle
+
 ## [1.9.0] - 2026-01-27
 
 ### Added

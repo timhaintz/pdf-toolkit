@@ -684,6 +684,120 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             filter: invert(1) hue-rotate(180deg);
         }
 
+        /* Search bar styles */
+        .search-container {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .search-input {
+            width: 150px;
+            padding: 4px 8px;
+            background-color: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 3px;
+            font-size: 13px;
+        }
+
+        .search-input:focus {
+            outline: 1px solid var(--vscode-focusBorder);
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .search-results {
+            font-size: 12px;
+            color: var(--vscode-descriptionForeground);
+            min-width: 60px;
+        }
+
+        .search-nav {
+            background: none;
+            border: none;
+            color: var(--vscode-foreground);
+            cursor: pointer;
+            padding: 4px 6px;
+            font-size: 10px;
+            opacity: 0.7;
+        }
+
+        .search-nav:hover {
+            opacity: 1;
+            background-color: var(--vscode-toolbar-hoverBackground);
+            border-radius: 3px;
+        }
+
+        .search-nav:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        /* Search highlight styles */
+        .search-highlight {
+            background-color: rgba(255, 255, 0, 0.4);
+            border-radius: 2px;
+        }
+
+        .search-highlight.current {
+            background-color: rgba(255, 165, 0, 0.6);
+            outline: 2px solid orange;
+        }
+
+        /* Outline panel styles */
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .outline-panel {
+            width: 250px;
+            background-color: var(--vscode-sideBar-background);
+            border-right: 1px solid var(--vscode-sideBar-border);
+            overflow-y: auto;
+            display: none;
+            flex-shrink: 0;
+        }
+
+        .outline-panel.show {
+            display: block;
+        }
+
+        .outline-header {
+            padding: 10px 12px;
+            font-weight: bold;
+            font-size: 13px;
+            border-bottom: 1px solid var(--vscode-sideBar-border);
+            color: var(--vscode-sideBarTitle-foreground);
+        }
+
+        .outline-item {
+            padding: 6px 12px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--vscode-foreground);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .outline-item:hover {
+            background-color: var(--vscode-list-hoverBackground);
+        }
+
+        .outline-item.level-1 { padding-left: 12px; }
+        .outline-item.level-2 { padding-left: 24px; font-size: 12px; }
+        .outline-item.level-3 { padding-left: 36px; font-size: 12px; }
+        .outline-item.level-4 { padding-left: 48px; font-size: 11px; }
+
+        .outline-empty {
+            padding: 12px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 12px;
+            font-style: italic;
+        }
+
         .loading {
             display: flex;
             flex-direction: column;
@@ -739,6 +853,15 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         <button id="rotate-cw" title="Rotate Clockwise (R)">↷</button>
         <button id="dark-mode" title="Toggle Dark Mode (D)">🌙</button>
         <div class="toolbar-separator"></div>
+        <button id="toggle-outline" title="Toggle Outline/TOC (O)">📑</button>
+        <div class="search-container">
+            <input type="text" id="search-input" class="search-input" placeholder="Search... (Ctrl+F)" title="Search in PDF">
+            <span id="search-results" class="search-results"></span>
+            <button id="search-prev" class="search-nav" title="Previous match (Shift+Enter)">▲</button>
+            <button id="search-next" class="search-nav" title="Next match (Enter)">▼</button>
+            <button id="search-close" class="search-nav" title="Close search (Escape)">✕</button>
+        </div>
+        <div class="toolbar-separator"></div>
         <div class="screenshot-menu">
             <button id="screenshot-btn" class="extract-btn" title="Take screenshot of PDF pages">📷 Screenshot ▾</button>
             <div id="screenshot-dropdown" class="screenshot-dropdown">
@@ -751,10 +874,16 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         <button id="browse-extracted-btn" class="extract-btn" title="Browse previously extracted PDFs">📁 Extracted</button>
         <span class="toolbar-info" id="file-info"></span>
     </div>
-    <div id="pdf-container">
-        <div class="loading">
-            <div class="loading-spinner"></div>
-            <span>Loading PDF...</span>
+    <div class="main-container">
+        <div id="outline-panel" class="outline-panel">
+            <div class="outline-header">📑 Outline</div>
+            <div id="outline-content"></div>
+        </div>
+        <div id="pdf-container">
+            <div class="loading">
+                <div class="loading-spinner"></div>
+                <span>Loading PDF...</span>
+            </div>
         </div>
     </div>
 
@@ -778,6 +907,14 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         let pageCanvases = [];
         let currentRotation = 0; // 0, 90, 180, 270 degrees
         let isDarkMode = false;
+
+        // Search state
+        let searchMatches = [];  // Array of { pageNum, textContent, positions }
+        let currentMatchIndex = -1;
+        let pageTextContents = []; // Cache text content for each page
+
+        // Outline state
+        let outlineItems = [];
 
         // PDF data embedded as base64
         const pdfBase64 = '${pdfBase64}';
@@ -803,6 +940,9 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
 
                 vscode.postMessage({ type: 'pageCount', count: totalPages });
                 vscode.postMessage({ type: 'ready' });
+
+                // Load outline/TOC
+                await loadOutline();
 
                 // Render all pages
                 await renderAllPages();
@@ -934,6 +1074,187 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                 document.getElementById('dark-mode').textContent = '🌙';
                 document.getElementById('dark-mode').title = 'Toggle Dark Mode (D)';
             }
+        }
+
+        // Search functions
+        async function performSearch(query) {
+            if (!query || query.length < 2) {
+                clearSearchHighlights();
+                searchMatches = [];
+                currentMatchIndex = -1;
+                updateSearchResults();
+                return;
+            }
+
+            searchMatches = [];
+            currentMatchIndex = -1;
+            clearSearchHighlights();
+
+            const lowerQuery = query.toLowerCase();
+
+            for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+                const page = await pdfDoc.getPage(pageNum);
+                const textContent = await page.getTextContent();
+                
+                textContent.items.forEach((item, itemIndex) => {
+                    const text = item.str.toLowerCase();
+                    let pos = 0;
+                    while ((pos = text.indexOf(lowerQuery, pos)) !== -1) {
+                        searchMatches.push({
+                            pageNum: pageNum,
+                            itemIndex: itemIndex,
+                            position: pos,
+                            length: query.length
+                        });
+                        pos += 1;
+                    }
+                });
+            }
+
+            if (searchMatches.length > 0) {
+                currentMatchIndex = 0;
+                highlightMatches();
+                goToCurrentMatch();
+            }
+
+            updateSearchResults();
+        }
+
+        function highlightMatches() {
+            // Add highlight class to matching text layer spans
+            searchMatches.forEach((match, index) => {
+                const textLayer = document.getElementById('text-layer-' + match.pageNum);
+                if (textLayer && textLayer.children[match.itemIndex]) {
+                    const span = textLayer.children[match.itemIndex];
+                    span.classList.add('search-highlight');
+                    if (index === currentMatchIndex) {
+                        span.classList.add('current');
+                    }
+                }
+            });
+        }
+
+        function clearSearchHighlights() {
+            document.querySelectorAll('.search-highlight').forEach(el => {
+                el.classList.remove('search-highlight', 'current');
+            });
+        }
+
+        function goToCurrentMatch() {
+            if (currentMatchIndex < 0 || currentMatchIndex >= searchMatches.length) return;
+            
+            const match = searchMatches[currentMatchIndex];
+            
+            // Remove current highlight from all
+            document.querySelectorAll('.search-highlight.current').forEach(el => {
+                el.classList.remove('current');
+            });
+            
+            // Add current highlight to current match
+            const textLayer = document.getElementById('text-layer-' + match.pageNum);
+            if (textLayer && textLayer.children[match.itemIndex]) {
+                const span = textLayer.children[match.itemIndex];
+                span.classList.add('current');
+                span.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+            
+            // Update page indicator
+            currentPage = match.pageNum;
+            pageInput.value = currentPage;
+        }
+
+        function nextMatch() {
+            if (searchMatches.length === 0) return;
+            currentMatchIndex = (currentMatchIndex + 1) % searchMatches.length;
+            goToCurrentMatch();
+            updateSearchResults();
+        }
+
+        function prevMatch() {
+            if (searchMatches.length === 0) return;
+            currentMatchIndex = (currentMatchIndex - 1 + searchMatches.length) % searchMatches.length;
+            goToCurrentMatch();
+            updateSearchResults();
+        }
+
+        function updateSearchResults() {
+            const resultsSpan = document.getElementById('search-results');
+            if (searchMatches.length === 0) {
+                resultsSpan.textContent = '';
+            } else {
+                resultsSpan.textContent = (currentMatchIndex + 1) + ' of ' + searchMatches.length;
+            }
+        }
+
+        function clearSearch() {
+            document.getElementById('search-input').value = '';
+            clearSearchHighlights();
+            searchMatches = [];
+            currentMatchIndex = -1;
+            updateSearchResults();
+        }
+
+        // Outline functions
+        async function loadOutline() {
+            const outlineContent = document.getElementById('outline-content');
+            
+            try {
+                const outline = await pdfDoc.getOutline();
+                
+                if (!outline || outline.length === 0) {
+                    outlineContent.innerHTML = '<div class="outline-empty">No outline available for this PDF.</div>';
+                    return;
+                }
+
+                outlineItems = outline;
+                await renderOutline(outline, outlineContent, 1);
+            } catch (error) {
+                outlineContent.innerHTML = '<div class="outline-empty">Could not load outline.</div>';
+            }
+        }
+
+        async function renderOutline(items, container, level) {
+            for (const item of items) {
+                const div = document.createElement('div');
+                div.className = 'outline-item level-' + Math.min(level, 4);
+                div.textContent = item.title;
+                div.title = item.title;
+                
+                // Get destination page number
+                if (item.dest) {
+                    try {
+                        let destRef = item.dest;
+                        if (typeof destRef === 'string') {
+                            destRef = await pdfDoc.getDestination(destRef);
+                        }
+                        if (destRef && destRef[0]) {
+                            const pageIndex = await pdfDoc.getPageIndex(destRef[0]);
+                            div.dataset.page = pageIndex + 1;
+                        }
+                    } catch (e) {
+                        // Destination parsing failed, skip
+                    }
+                }
+                
+                div.addEventListener('click', () => {
+                    const pageNum = parseInt(div.dataset.page);
+                    if (pageNum && pageNum >= 1 && pageNum <= totalPages) {
+                        scrollToPage(pageNum);
+                    }
+                });
+                
+                container.appendChild(div);
+                
+                // Recursively render children
+                if (item.items && item.items.length > 0) {
+                    await renderOutline(item.items, container, level + 1);
+                }
+            }
+        }
+
+        function toggleOutline() {
+            const panel = document.getElementById('outline-panel');
+            panel.classList.toggle('show');
         }
 
         async function updateZoom(newScale) {
@@ -1085,6 +1406,40 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             toggleDarkMode();
         });
 
+        // Outline toggle event listener
+        document.getElementById('toggle-outline').addEventListener('click', () => {
+            toggleOutline();
+        });
+
+        // Search event listeners
+        const searchInput = document.getElementById('search-input');
+        let searchTimeout;
+
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                performSearch(searchInput.value);
+            }, 300); // Debounce search
+        });
+
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (e.shiftKey) {
+                    prevMatch();
+                } else {
+                    nextMatch();
+                }
+            } else if (e.key === 'Escape') {
+                clearSearch();
+                searchInput.blur();
+            }
+        });
+
+        document.getElementById('search-next').addEventListener('click', nextMatch);
+        document.getElementById('search-prev').addEventListener('click', prevMatch);
+        document.getElementById('search-close').addEventListener('click', clearSearch);
+
         // Screenshot dropdown menu
         const screenshotBtn = document.getElementById('screenshot-btn');
         const screenshotDropdown = document.getElementById('screenshot-dropdown');
@@ -1140,7 +1495,14 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
-            // Skip shortcuts if user is typing in an input
+            // Ctrl+F to focus search - always works
+            if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+                e.preventDefault();
+                document.getElementById('search-input').focus();
+                return;
+            }
+
+            // Skip other shortcuts if user is typing in an input
             if (e.target.tagName === 'INPUT') return;
 
             if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
@@ -1160,6 +1522,8 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                 rotatePages(!e.shiftKey);
             } else if (e.key === 'd' || e.key === 'D') {
                 toggleDarkMode();
+            } else if (e.key === 'o' || e.key === 'O') {
+                toggleOutline();
             }
         });
 

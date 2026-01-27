@@ -62,6 +62,12 @@ This is perfect for:
 - **Page Rotation**: Rotate pages 90° clockwise (`R`) or counter-clockwise (`Shift+R`)
 - **Keyboard Shortcuts**: Full keyboard support for efficient navigation
 
+### Search and Outline
+- **Search (Ctrl+F)**: Find text within PDF documents with real-time highlighting
+- **Match Navigation**: Navigate between search matches with prev/next buttons or Enter key
+- **Match Counter**: See current match position and total count (e.g., "3 of 17")
+- **Outline/TOC Panel**: Toggle document outline sidebar to navigate via bookmarks (`O` key)
+
 ### Page Extraction (Screenshot to Images)
 - **Screenshot Menu**: Click the 📷 Screenshot button for quick access to all export options
 - **Current Page**: Save the currently viewed page as a PNG/JPEG image
@@ -120,7 +126,9 @@ Simply open any `.pdf` file in VS Code. The PDF Toolkit will automatically displ
 | └ ⚙️ Custom... | Open multi-step wizard for custom extraction |
 | ↶ / ↷ | Rotate pages counter-clockwise / clockwise |
 | 🌙 | Toggle dark mode |
-| 📁 Extracted | Browse previously extracted PDFs |
+| � Search | Search text within the PDF (Ctrl+F) |
+| 📑 Outline | Toggle document outline/TOC sidebar |
+| �📁 Extracted | Browse previously extracted PDFs |
 
 ### Keyboard Shortcuts
 
@@ -135,6 +143,9 @@ Simply open any `.pdf` file in VS Code. The PDF Toolkit will automatically displ
 | R | Rotate pages clockwise (90°) |
 | Shift + R | Rotate pages counter-clockwise (90°) |
 | D | Toggle dark mode |
+| Ctrl + F | Focus search input |
+| O | Toggle outline/TOC panel |
+| Escape | Clear search / Close outline |
 
 ### Commands
 
