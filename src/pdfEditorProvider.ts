@@ -168,6 +168,12 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                     case 'extractedPages':
                         await this.saveExtractedPages(message.pages, message.format);
                         break;
+                    case 'extractedImages':
+                        await this.saveExtractedImages(message.images, message.totalFound);
+                        break;
+                    case 'status':
+                        vscode.window.setStatusBarMessage(message.message, 3000);
+                        break;
                     case 'openCustomMenu':
                         // Trigger the custom extraction wizard command
                         vscode.commands.executeCommand('pdfToolkit.openCustomWizard', message.totalPages, message.currentPage);
@@ -452,6 +458,92 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             attachFiles: imageUris
         });
         vscode.window.showInformationMessage(`Added ${filePaths.length} image(s) to Copilot Chat!`);
+    }
+
+    /**
+     * Save extracted embedded images (charts, figures, photos) from PDF
+     */
+    private async saveExtractedImages(images: Array<{ index: number; page: number; width: number; height: number; data: string }>, totalFound: number): Promise<void> {
+        if (!this._activeDocument) {
+            vscode.window.showErrorMessage('No PDF document active');
+            return;
+        }
+
+        if (images.length === 0) {
+            vscode.window.showInformationMessage('No embedded images found in this PDF.');
+            return;
+        }
+
+        // Get the screenshots folder name from settings
+        const config = vscode.workspace.getConfiguration('pdfToolkit');
+        const screenshotsFolderName = config.get<string>('screenshotsFolder', 'PDF-Screenshots');
+
+        // Create output directory
+        const pdfName = path.basename(this._activeDocument.uri.fsPath, '.pdf');
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || path.dirname(this._activeDocument.uri.fsPath);
+        const outputDir = path.join(workspaceFolder, screenshotsFolderName, pdfName, 'images');
+
+        // Ensure directory exists
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(outputDir));
+
+        const savedFiles: string[] = [];
+        const skippedFiles: string[] = [];
+
+        for (const img of images) {
+            const fileName = `image_${img.index.toString().padStart(3, '0')}_page${img.page}_${img.width}x${img.height}.png`;
+            const filePath = path.join(outputDir, fileName);
+
+            // Check if file already exists
+            try {
+                await vscode.workspace.fs.stat(vscode.Uri.file(filePath));
+                skippedFiles.push(fileName);
+                continue; // Skip existing files
+            } catch {
+                // File doesn't exist, proceed with saving
+            }
+
+            try {
+                const base64Data = img.data.replace(/^data:image\/\w+;base64,/, '');
+                const buffer = Buffer.from(base64Data, 'base64');
+                await vscode.workspace.fs.writeFile(vscode.Uri.file(filePath), buffer);
+                savedFiles.push(filePath);
+            } catch (error) {
+                console.error(`Failed to save image ${fileName}:`, error);
+            }
+        }
+
+        if (savedFiles.length === 0 && skippedFiles.length > 0) {
+            const action = await vscode.window.showWarningMessage(
+                `All ${skippedFiles.length} image(s) already exist in: ${outputDir}`,
+                'Open Folder',
+                'Add to Copilot Chat'
+            );
+
+            if (action === 'Open Folder') {
+                await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outputDir));
+            } else if (action === 'Add to Copilot Chat') {
+                const existingPaths = skippedFiles.map(f => path.join(outputDir, f));
+                await this.addImagesToCopilotChat(existingPaths);
+            }
+            return;
+        }
+
+        const skippedMsg = skippedFiles.length > 0 ? ` (${skippedFiles.length} already existed)` : '';
+        const message = `Extracted ${savedFiles.length} embedded image(s) to: ${outputDir}${skippedMsg}`;
+        const action = await vscode.window.showInformationMessage(
+            message,
+            'Open Folder',
+            'Add to Copilot Chat',
+            'Open First Image'
+        );
+
+        if (action === 'Open Folder') {
+            await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outputDir));
+        } else if (action === 'Add to Copilot Chat') {
+            await this.addImagesToCopilotChat(savedFiles);
+        } else if (action === 'Open First Image' && savedFiles.length > 0) {
+            await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(savedFiles[0]));
+        }
     }
 
     private getHtmlContent(
@@ -869,6 +961,8 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                 <button id="screenshot-all" title="Screenshot all pages">📚 All Pages</button>
                 <div class="divider"></div>
                 <button id="screenshot-custom" title="Custom screenshot options">⚙️ Custom...</button>
+                <div class="divider"></div>
+                <button id="extract-images" title="Extract embedded images (charts, figures, photos)">🖼️ Extract Images</button>
             </div>
         </div>
         <button id="browse-extracted-btn" class="extract-btn" title="Browse previously extracted PDFs">📁 Extracted</button>
@@ -1316,6 +1410,120 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             });
         }
 
+        // Extract embedded images from PDF (charts, figures, photos)
+        async function extractEmbeddedImages() {
+            const extractedImages = [];
+            let imageIndex = 0;
+
+            vscode.postMessage({ type: 'status', message: 'Scanning PDF for embedded images...' });
+
+            for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+                try {
+                    const page = await pdfDoc.getPage(pageNum);
+                    const operatorList = await page.getOperatorList();
+                    
+                    // Find all image objects in the operator list
+                    for (let i = 0; i < operatorList.fnArray.length; i++) {
+                        const fn = operatorList.fnArray[i];
+                        
+                        // OPS.paintImageXObject = 85, OPS.paintJpegXObject = 82
+                        if (fn === 85 || fn === 82) {
+                            const imgName = operatorList.argsArray[i][0];
+                            
+                            try {
+                                // Get the image object from the page
+                                const objs = page.objs;
+                                
+                                // Wait for the image object to be available
+                                await new Promise((resolve, reject) => {
+                                    objs.get(imgName, (imgData) => {
+                                        if (imgData) {
+                                            resolve(imgData);
+                                        } else {
+                                            reject(new Error('Image not found'));
+                                        }
+                                    });
+                                    
+                                    // Timeout after 5 seconds
+                                    setTimeout(() => reject(new Error('Timeout')), 5000);
+                                }).then(async (imgData) => {
+                                    // imgData contains width, height, and either data (raw) or src (data URL)
+                                    if (imgData && (imgData.data || imgData.src)) {
+                                        imageIndex++;
+                                        
+                                        let dataUrl;
+                                        
+                                        if (imgData.src) {
+                                            // Already a data URL (JPEG)
+                                            dataUrl = imgData.src;
+                                        } else if (imgData.data && imgData.width && imgData.height) {
+                                            // Raw image data - convert to canvas
+                                            const canvas = document.createElement('canvas');
+                                            canvas.width = imgData.width;
+                                            canvas.height = imgData.height;
+                                            const ctx = canvas.getContext('2d');
+                                            
+                                            // Create ImageData from the raw pixel data
+                                            const imageData = ctx.createImageData(imgData.width, imgData.height);
+                                            
+                                            // Copy the pixel data
+                                            if (imgData.data.length === imgData.width * imgData.height * 4) {
+                                                // RGBA data
+                                                imageData.data.set(imgData.data);
+                                            } else if (imgData.data.length === imgData.width * imgData.height * 3) {
+                                                // RGB data - need to add alpha
+                                                for (let j = 0, k = 0; j < imgData.data.length; j += 3, k += 4) {
+                                                    imageData.data[k] = imgData.data[j];
+                                                    imageData.data[k + 1] = imgData.data[j + 1];
+                                                    imageData.data[k + 2] = imgData.data[j + 2];
+                                                    imageData.data[k + 3] = 255;
+                                                }
+                                            } else {
+                                                // Grayscale or other format
+                                                const bytesPerPixel = imgData.data.length / (imgData.width * imgData.height);
+                                                for (let j = 0; j < imgData.width * imgData.height; j++) {
+                                                    const gray = imgData.data[j * bytesPerPixel];
+                                                    imageData.data[j * 4] = gray;
+                                                    imageData.data[j * 4 + 1] = gray;
+                                                    imageData.data[j * 4 + 2] = gray;
+                                                    imageData.data[j * 4 + 3] = 255;
+                                                }
+                                            }
+                                            
+                                            ctx.putImageData(imageData, 0, 0);
+                                            dataUrl = canvas.toDataURL('image/png');
+                                        }
+                                        
+                                        if (dataUrl) {
+                                            extractedImages.push({
+                                                index: imageIndex,
+                                                page: pageNum,
+                                                width: imgData.width,
+                                                height: imgData.height,
+                                                data: dataUrl
+                                            });
+                                        }
+                                    }
+                                }).catch(() => {
+                                    // Ignore errors for individual images
+                                });
+                            } catch (imgError) {
+                                // Continue with next image
+                            }
+                        }
+                    }
+                } catch (pageError) {
+                    console.error('Error scanning page ' + pageNum + ':', pageError);
+                }
+            }
+
+            vscode.postMessage({
+                type: 'extractedImages',
+                images: extractedImages,
+                totalFound: extractedImages.length
+            });
+        }
+
         // Event listeners
         document.getElementById('prev-page').addEventListener('click', () => {
             if (currentPage > 1) {
@@ -1473,6 +1681,11 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         document.getElementById('screenshot-custom').addEventListener('click', () => {
             screenshotDropdown.classList.remove('show');
             vscode.postMessage({ type: 'openCustomMenu', totalPages: totalPages, currentPage: currentPage });
+        });
+
+        document.getElementById('extract-images').addEventListener('click', () => {
+            screenshotDropdown.classList.remove('show');
+            extractEmbeddedImages();
         });
 
         // Browse extracted PDFs button

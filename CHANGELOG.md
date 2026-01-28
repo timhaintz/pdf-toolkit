@@ -5,6 +5,20 @@ All notable changes to PDF Toolkit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-01-28
+
+### Added
+- **🖼️ Image Extraction**: Extract embedded images (charts, figures, photos) directly from PDFs
+  - New "Extract Images" option in the Screenshot menu
+  - Automatically detects and extracts all embedded images from the PDF
+  - Saves to `PDF-Screenshots/[filename]/images/` folder
+  - Filenames include page number and dimensions for easy identification
+  - Option to add extracted images directly to GitHub Copilot Chat
+
+### Changed
+- Major version bump to reflect significant new functionality
+- Screenshot dropdown menu now includes image extraction option
+
 ## [1.10.0] - 2026-01-28
 
 ### Added

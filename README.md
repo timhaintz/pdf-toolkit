@@ -73,6 +73,12 @@ This is perfect for:
 - **Current Page**: Save the currently viewed page as a PNG/JPEG image
 - **All Pages**: Export every page of a PDF as individual images
 - **Custom Wizard**: Multi-step wizard to select specific pages, resolution (72-288 DPI), and format (PNG/JPEG)
+
+### Image Extraction (NEW in v2.0)
+- **Extract Embedded Images**: Extract charts, figures, photos, and other embedded images directly from PDFs
+- **Automatic Detection**: Scans all pages and extracts each embedded image as a separate file
+- **Smart Naming**: Filenames include image index, page number, and dimensions (e.g., `image_001_page3_800x600.png`)
+- **Copilot Integration**: Add extracted images directly to GitHub Copilot Chat for AI analysis
 - **Quality Settings**: Configurable DPI for extracted images
 
 ## Installation
@@ -124,6 +130,7 @@ Simply open any `.pdf` file in VS Code. The PDF Toolkit will automatically displ
 | └ 📄 Current Page | Extract current page as image |
 | └ 📚 All Pages | Extract all pages as images |
 | └ ⚙️ Custom... | Open multi-step wizard for custom extraction |
+| └ 🖼️ Extract Images | Extract embedded images (charts, figures) |
 | ↶ / ↷ | Rotate pages counter-clockwise / clockwise |
 | 🌙 | Toggle dark mode |
 | � Search | Search text within the PDF (Ctrl+F) |
