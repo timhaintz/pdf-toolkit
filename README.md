@@ -198,6 +198,7 @@ When you extract pages, they are saved to a `PDF-Screenshots/<pdf-name>/` folder
 | `pdfToolkit.extractionQuality` | `2.0` | Quality scale (1.0=72dpi, 2.0=144dpi, 3.0=216dpi) |
 | `pdfToolkit.extractionFormat` | `png` | Image format (`png` or `jpeg`) |
 | `pdfToolkit.screenshotsFolder` | `PDF-Screenshots` | Folder name for storing extracted screenshots |
+| `pdfToolkit.debug` | `false` | Enable debug logging to the Output panel (PDF Toolkit Debug channel) |
 
 ### Changing the Screenshots Folder
 

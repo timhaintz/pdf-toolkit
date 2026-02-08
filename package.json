@@ -131,6 +131,11 @@
           "type": "string",
           "default": "PDF-Screenshots",
           "description": "Folder name for storing extracted PDF screenshots (relative to workspace root)"
+        },
+        "pdfToolkit.debug": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable debug logging to the Output panel (PDF Toolkit Debug channel)"
         }
       }
     }

@@ -33,11 +33,27 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
     /** Per-panel state to support multiple PDFs open simultaneously */
     private _panels: Map<vscode.WebviewPanel, { document: PdfDocument; zoom: number; totalPages: number; currentPage: number }> = new Map();
     private _activePanel: vscode.WebviewPanel | undefined;
-    private _outputChannel: vscode.OutputChannel;
+    private _outputChannel: vscode.OutputChannel | undefined;
 
-    constructor(public readonly context: vscode.ExtensionContext) {
-        this._outputChannel = vscode.window.createOutputChannel('PDF Toolkit Debug');
-        this._outputChannel.appendLine('PDF Toolkit Debug channel ready');
+    constructor(public readonly context: vscode.ExtensionContext) {}
+
+    /** Returns true if the user has enabled pdfToolkit.debug */
+    private get debugEnabled(): boolean {
+        return vscode.workspace.getConfiguration('pdfToolkit').get<boolean>('debug', false);
+    }
+
+    /** Lazy-initialise the output channel on first use */
+    private getOutputChannel(): vscode.OutputChannel {
+        if (!this._outputChannel) {
+            this._outputChannel = vscode.window.createOutputChannel('PDF Toolkit Debug');
+        }
+        return this._outputChannel;
+    }
+
+    /** Write a debug message (only when pdfToolkit.debug is enabled) */
+    private debugLog(message: string): void {
+        if (!this.debugEnabled) { return; }
+        this.getOutputChannel().appendLine(message);
     }
 
     /**
@@ -172,7 +188,8 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             webviewPanel.webview,
             pdfJsUri,
             pdfWorkerUri,
-            pdfUri
+            pdfUri,
+            this.debugEnabled
         );
 
         // Handle messages from the webview
@@ -209,7 +226,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                         vscode.window.setStatusBarMessage(message.message, 3000);
                         break;
                     case 'debug':
-                        this._outputChannel.appendLine(message.message);
+                        this.debugLog(message.message);
                         break;
                     case 'openCustomMenu':
                         vscode.commands.executeCommand('pdfToolkit.openCustomWizard', message.totalPages, message.currentPage);
@@ -590,7 +607,8 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         webview: vscode.Webview,
         pdfJsUri: vscode.Uri,
         pdfWorkerUri: vscode.Uri,
-        pdfUri: vscode.Uri
+        pdfUri: vscode.Uri,
+        debugEnabled: boolean = false
     ): string {
         const nonce = this.getNonce();
 
@@ -1087,6 +1105,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         pdfjsLib.GlobalWorkerOptions.workerSrc = '${pdfWorkerUri}';
 
         const vscode = acquireVsCodeApi();
+        const DEBUG_ENABLED = ${debugEnabled};
         const container = document.getElementById('pdf-container');
         const pageInput = document.getElementById('page-input');
         const pageCountSpan = document.getElementById('page-count');
@@ -1298,7 +1317,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                     pageText += str;
                 }
 
-                function debugLog(msg) { vscode.postMessage({ type: 'debug', message: msg }); }
+                function debugLog(msg) { if (DEBUG_ENABLED) { vscode.postMessage({ type: 'debug', message: msg }); } }
                 debugLog('[Search] Page ' + pageNum + ': ' + textContentItemsStr.length + ' text items, pageText length=' + pageText.length);
                 debugLog('[Search] Page ' + pageNum + ' first 5 items: ' + JSON.stringify(textContentItemsStr.slice(0, 5)));
 
@@ -1405,7 +1424,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                     const originalText = textContentItemsStr[d];
                     if (!originalText) return;
 
-                    vscode.postMessage({ type: 'debug', message: '[Highlight] Page ' + pageNum + ' div[' + d + ']: text="' + originalText + '", inDOM=' + !!div.parentElement + ', pos=' + div.style.left + ',' + div.style.top });
+                    if (DEBUG_ENABLED) { vscode.postMessage({ type: 'debug', message: '[Highlight] Page ' + pageNum + ' div[' + d + ']: text="' + originalText + '", inDOM=' + !!div.parentElement + ', pos=' + div.style.left + ',' + div.style.top }); }
 
                     const highlights = divHighlights[d];
                     const fragment = document.createDocumentFragment();
