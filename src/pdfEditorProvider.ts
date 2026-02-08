@@ -6,19 +6,13 @@ import * as path from 'path';
  */
 class PdfDocument implements vscode.CustomDocument {
     public readonly uri: vscode.Uri;
-    private _data: Uint8Array;
 
-    constructor(uri: vscode.Uri, data: Uint8Array) {
+    constructor(uri: vscode.Uri) {
         this.uri = uri;
-        this._data = data;
-    }
-
-    public get data(): Uint8Array {
-        return this._data;
     }
 
     dispose(): void {
-        this._data = new Uint8Array(0);
+        // No resources to free — PDF is loaded directly by the webview via URI
     }
 }
 
@@ -115,8 +109,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         openContext: vscode.CustomDocumentOpenContext,
         token: vscode.CancellationToken
     ): Promise<PdfDocument> {
-        const data = await vscode.workspace.fs.readFile(uri);
-        return new PdfDocument(uri, data);
+        return new PdfDocument(uri);
     }
 
     /**
@@ -156,6 +149,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             localResourceRoots: [
                 vscode.Uri.joinPath(this.context.extensionUri, 'media'),
                 vscode.Uri.joinPath(this.context.extensionUri, 'node_modules', 'pdfjs-dist'),
+                vscode.Uri.file(path.dirname(document.uri.fsPath)),
             ]
         };
 
@@ -167,15 +161,14 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             vscode.Uri.joinPath(this.context.extensionUri, 'node_modules', 'pdfjs-dist', 'build', 'pdf.worker.min.mjs')
         );
 
-        // Convert PDF data to base64 for embedding in the webview HTML.
-        // Note: For very large PDFs (50+ MB), this may cause high memory usage.
-        const pdfBase64 = Buffer.from(document.data).toString('base64');
+        // Serve the PDF file directly to the webview via URI — no base64 copy needed
+        const pdfUri = webviewPanel.webview.asWebviewUri(document.uri);
 
         webviewPanel.webview.html = this.getHtmlContent(
             webviewPanel.webview,
             pdfJsUri,
             pdfWorkerUri,
-            pdfBase64
+            pdfUri
         );
 
         // Handle messages from the webview
@@ -590,7 +583,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         webview: vscode.Webview,
         pdfJsUri: vscode.Uri,
         pdfWorkerUri: vscode.Uri,
-        pdfBase64: string
+        pdfUri: vscode.Uri
     ): string {
         const nonce = this.getNonce();
 
@@ -599,7 +592,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}' blob:; style-src 'unsafe-inline'; img-src ${webview.cspSource} data: blob:; worker-src blob:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}' blob:; style-src 'unsafe-inline'; img-src ${webview.cspSource} data: blob:; connect-src ${webview.cspSource}; worker-src blob:;">
     <title>PDF Viewer</title>
     <style>
         * {
@@ -1050,21 +1043,13 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         // Outline state
         let outlineItems = [];
 
-        // PDF data embedded as base64
-        const pdfBase64 = '${pdfBase64}';
+        // PDF served directly via webview URI — no base64 copy in memory
+        const pdfUrl = '${pdfUri}';
 
         async function loadPdf() {
             try {
-                // Convert base64 to Uint8Array
-                const binaryString = atob(pdfBase64);
-                const len = binaryString.length;
-                const bytes = new Uint8Array(len);
-                for (let i = 0; i < len; i++) {
-                    bytes[i] = binaryString.charCodeAt(i);
-                }
-
-                // Load the PDF
-                const loadingTask = pdfjsLib.getDocument({ data: bytes });
+                // Load the PDF directly from webview URI
+                const loadingTask = pdfjsLib.getDocument(pdfUrl);
                 pdfDoc = await loadingTask.promise;
                 totalPages = pdfDoc.numPages;
                 
