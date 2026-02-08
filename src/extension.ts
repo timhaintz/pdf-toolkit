@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { PdfEditorProvider } from './pdfEditorProvider';
 
 export function activate(context: vscode.ExtensionContext) {
-    console.log('PDF Viewer extension is now active!');
 
     // Register the custom editor provider for PDF files
     const pdfEditorProvider = new PdfEditorProvider(context);
@@ -126,7 +126,7 @@ async function browseExtractedPdfs(pdfEditorProvider: PdfEditorProvider): Promis
     }
 
     const folderName = PdfEditorProvider.getScreenshotsFolderName();
-    const screenshotsDir = require('path').join(
+    const screenshotsDir = path.join(
         workspaceFolders[0].uri.fsPath, 
         folderName
     );
@@ -229,7 +229,7 @@ async function scanScreenshotsFolder(screenshotsDir: string): Promise<{ name: st
         
         for (const [name, type] of entries) {
             if (type === vscode.FileType.Directory) {
-                const folderPath = require('path').join(screenshotsDir, name);
+                const folderPath = path.join(screenshotsDir, name);
                 
                 // Count PNG/JPEG files in the folder
                 try {
@@ -272,7 +272,6 @@ async function showPdfActions(
     pdfEditorProvider: PdfEditorProvider,
     pdf: { name: string; path: string; pageCount: number; extractedAt: string }
 ): Promise<void> {
-    const path = require('path');
     const fs = vscode.workspace.fs;
 
     // Get list of images in the folder

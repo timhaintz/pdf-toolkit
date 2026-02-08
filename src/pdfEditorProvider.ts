@@ -18,7 +18,7 @@ class PdfDocument implements vscode.CustomDocument {
     }
 
     dispose(): void {
-        // Clean up resources
+        this._data = new Uint8Array(0);
     }
 }
 
@@ -36,13 +36,21 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         return config.get<string>('screenshotsFolder', 'PDF-Screenshots');
     }
     
-    private _activeWebview: vscode.WebviewPanel | undefined;
-    private _activeDocument: PdfDocument | undefined;
-    private _currentZoom: number = 1.0;
-    private _totalPages: number = 0;
-    private _currentPage: number = 1;
+    /** Per-panel state to support multiple PDFs open simultaneously */
+    private _panels: Map<vscode.WebviewPanel, { document: PdfDocument; zoom: number; totalPages: number; currentPage: number }> = new Map();
+    private _activePanel: vscode.WebviewPanel | undefined;
 
     constructor(public readonly context: vscode.ExtensionContext) {}
+
+    /**
+     * Get the active panel and its state, or undefined if no panel is focused
+     */
+    private getActiveState(): { panel: vscode.WebviewPanel; state: { document: PdfDocument; zoom: number; totalPages: number; currentPage: number } } | undefined {
+        if (this._activePanel && this._panels.has(this._activePanel)) {
+            return { panel: this._activePanel, state: this._panels.get(this._activePanel)! };
+        }
+        return undefined;
+    }
 
     /**
      * Get the list of extracted PDFs from workspace state
@@ -86,15 +94,15 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
     /**
      * Get the screenshots output directory
      */
-    private getScreenshotsDir(): string {
+    private getScreenshotsDir(document?: PdfDocument): string {
         const folderName = PdfEditorProvider.getScreenshotsFolderName();
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (workspaceFolders && workspaceFolders.length > 0) {
             return path.join(workspaceFolders[0].uri.fsPath, folderName);
         }
         // Fallback to PDF's directory if no workspace
-        if (this._activeDocument) {
-            return path.join(path.dirname(this._activeDocument.uri.fsPath), folderName);
+        if (document) {
+            return path.join(path.dirname(document.uri.fsPath), folderName);
         }
         throw new Error('No workspace or document available');
     }
@@ -119,8 +127,29 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         webviewPanel: vscode.WebviewPanel,
         token: vscode.CancellationToken
     ): Promise<void> {
-        this._activeWebview = webviewPanel;
-        this._activeDocument = document;
+        // Track this panel and its state
+        this._panels.set(webviewPanel, {
+            document,
+            zoom: 1.0,
+            totalPages: 0,
+            currentPage: 1
+        });
+        this._activePanel = webviewPanel;
+
+        // Track focus changes to route commands to the correct panel
+        webviewPanel.onDidChangeViewState(() => {
+            if (webviewPanel.active) {
+                this._activePanel = webviewPanel;
+            }
+        }, undefined, this.context.subscriptions);
+
+        // Clean up when panel is closed
+        webviewPanel.onDidDispose(() => {
+            this._panels.delete(webviewPanel);
+            if (this._activePanel === webviewPanel) {
+                this._activePanel = undefined;
+            }
+        }, undefined, this.context.subscriptions);
 
         webviewPanel.webview.options = {
             enableScripts: true,
@@ -138,7 +167,8 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             vscode.Uri.joinPath(this.context.extensionUri, 'node_modules', 'pdfjs-dist', 'build', 'pdf.worker.min.mjs')
         );
 
-        // Convert PDF data to base64 for embedding
+        // Convert PDF data to base64 for embedding in the webview HTML.
+        // Note: For very large PDFs (50+ MB), this may cause high memory usage.
         const pdfBase64 = Buffer.from(document.data).toString('base64');
 
         webviewPanel.webview.html = this.getHtmlContent(
@@ -151,35 +181,40 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         // Handle messages from the webview
         webviewPanel.webview.onDidReceiveMessage(
             async (message) => {
+                const panelState = this._panels.get(webviewPanel);
+                if (!panelState) return;
+
                 switch (message.type) {
                     case 'ready':
-                        console.log('PDF Viewer is ready');
                         break;
                     case 'error':
                         vscode.window.showErrorMessage(`PDF Error: ${message.message}`);
                         break;
                     case 'pageCount':
-                        this._totalPages = message.count;
-                        console.log(`PDF has ${message.count} pages`);
+                        panelState.totalPages = message.count;
                         break;
                     case 'currentPage':
-                        this._currentPage = message.page;
+                        panelState.currentPage = message.page;
                         break;
                     case 'extractedPages':
-                        await this.saveExtractedPages(message.pages, message.format);
+                        await this.saveExtractedPages(panelState.document, message.pages, message.format);
                         break;
                     case 'extractedImages':
-                        await this.saveExtractedImages(message.images, message.totalFound);
+                        await this.saveExtractedImages(panelState.document, webviewPanel, message.images, message.totalFound);
+                        break;
+                    case 'screenshotCurrent':
+                        this.extractPages('current', undefined, webviewPanel);
+                        break;
+                    case 'screenshotAll':
+                        this.extractPages('all', undefined, webviewPanel);
                         break;
                     case 'status':
                         vscode.window.setStatusBarMessage(message.message, 3000);
                         break;
                     case 'openCustomMenu':
-                        // Trigger the custom extraction wizard command
                         vscode.commands.executeCommand('pdfToolkit.openCustomWizard', message.totalPages, message.currentPage);
                         break;
                     case 'browseExtracted':
-                        // Open the browse extracted PDFs menu
                         vscode.commands.executeCommand('pdfToolkit.browseExtracted');
                         break;
                 }
@@ -190,52 +225,59 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
     }
 
     public zoomIn(): void {
-        this._currentZoom = Math.min(this._currentZoom + 0.25, 5.0);
-        this.sendZoomUpdate();
+        const active = this.getActiveState();
+        if (!active) return;
+        active.state.zoom = Math.min(active.state.zoom + 0.25, 5.0);
+        this.sendZoomUpdate(active.panel, active.state.zoom);
     }
 
     public zoomOut(): void {
-        this._currentZoom = Math.max(this._currentZoom - 0.25, 0.25);
-        this.sendZoomUpdate();
+        const active = this.getActiveState();
+        if (!active) return;
+        active.state.zoom = Math.max(active.state.zoom - 0.25, 0.25);
+        this.sendZoomUpdate(active.panel, active.state.zoom);
     }
 
     public resetZoom(): void {
-        this._currentZoom = 1.0;
-        this.sendZoomUpdate();
+        const active = this.getActiveState();
+        if (!active) return;
+        active.state.zoom = 1.0;
+        this.sendZoomUpdate(active.panel, active.state.zoom);
     }
 
-    private sendZoomUpdate(): void {
-        if (this._activeWebview) {
-            this._activeWebview.webview.postMessage({
-                type: 'zoom',
-                scale: this._currentZoom
-            });
-        }
+    private sendZoomUpdate(panel: vscode.WebviewPanel, scale: number): void {
+        panel.webview.postMessage({
+            type: 'zoom',
+            scale: scale
+        });
     }
 
     /**
      * Extract pages from the PDF as images
      */
-    public async extractPages(mode: 'all' | 'selected' | 'current', pageRange?: string): Promise<void> {
-        if (!this._activeWebview || !this._activeDocument) {
+    public async extractPages(mode: 'all' | 'selected' | 'current', pageRange?: string, panel?: vscode.WebviewPanel): Promise<void> {
+        const targetPanel = panel || this._activePanel;
+        const state = targetPanel ? this._panels.get(targetPanel) : undefined;
+
+        if (!targetPanel || !state) {
             vscode.window.showErrorMessage('No PDF is currently open');
             return;
         }
 
-        const config = vscode.workspace.getConfiguration('pdfViewer');
+        const config = vscode.workspace.getConfiguration('pdfToolkit');
         const quality = config.get<number>('extractionQuality', 2.0);
         const format = config.get<string>('extractionFormat', 'png');
 
         let pages: number[] = [];
 
         if (mode === 'all') {
-            for (let i = 1; i <= this._totalPages; i++) {
+            for (let i = 1; i <= state.totalPages; i++) {
                 pages.push(i);
             }
         } else if (mode === 'current') {
-            pages = [this._currentPage];
+            pages = [state.currentPage];
         } else if (mode === 'selected' && pageRange) {
-            pages = this.parsePageRange(pageRange, this._totalPages);
+            pages = this.parsePageRange(pageRange, state.totalPages);
         }
 
         if (pages.length === 0) {
@@ -243,9 +285,9 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             return;
         }
 
-        vscode.window.showInformationMessage(`Extracting ${pages.length} page(s) as images...`);
+        vscode.window.showInformationMessage(`Extracting ${pages.length} page(s) as ${format.toUpperCase()} images...`);
 
-        this._activeWebview.webview.postMessage({
+        targetPanel.webview.postMessage({
             type: 'extractPages',
             pages: pages,
             quality: quality,
@@ -257,7 +299,8 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
      * Extract pages with custom settings (from wizard)
      */
     public async extractPagesCustom(pageRange: string, quality: number, format: string): Promise<void> {
-        if (!this._activeWebview || !this._activeDocument) {
+        const active = this.getActiveState();
+        if (!active) {
             vscode.window.showErrorMessage('No PDF is currently open');
             return;
         }
@@ -265,11 +308,11 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         let pages: number[] = [];
 
         if (pageRange === 'all') {
-            for (let i = 1; i <= this._totalPages; i++) {
+            for (let i = 1; i <= active.state.totalPages; i++) {
                 pages.push(i);
             }
         } else {
-            pages = this.parsePageRange(pageRange, this._totalPages);
+            pages = this.parsePageRange(pageRange, active.state.totalPages);
         }
 
         if (pages.length === 0) {
@@ -279,7 +322,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
 
         vscode.window.showInformationMessage(`Extracting ${pages.length} page(s) at ${quality * 72} DPI as ${format.toUpperCase()}...`);
 
-        this._activeWebview.webview.postMessage({
+        active.panel.webview.postMessage({
             type: 'extractPages',
             pages: pages,
             quality: quality,
@@ -317,16 +360,12 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
     /**
      * Save extracted pages to files
      */
-    private async saveExtractedPages(pages: { page: number; data: string }[], format: string): Promise<void> {
-        if (!this._activeDocument) {
-            return;
-        }
-
-        const pdfUri = this._activeDocument.uri;
+    private async saveExtractedPages(document: PdfDocument, pages: { page: number; data: string }[], format: string): Promise<void> {
+        const pdfUri = document.uri;
         const pdfName = path.basename(pdfUri.fsPath, '.pdf');
         
         // Use centralized PDF Screenshots folder
-        const screenshotsDir = this.getScreenshotsDir();
+        const screenshotsDir = this.getScreenshotsDir(document);
         const outputDir = path.join(screenshotsDir, pdfName);
 
         try {
@@ -463,19 +502,14 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
     /**
      * Save extracted embedded images (charts, figures, photos) from PDF
      */
-    private async saveExtractedImages(images: Array<{ index: number; page: number; width: number; height: number; data: string }>, totalFound: number): Promise<void> {
-        if (!this._activeDocument) {
-            vscode.window.showErrorMessage('No PDF document active');
-            return;
-        }
-
+    private async saveExtractedImages(document: PdfDocument, panel: vscode.WebviewPanel, images: Array<{ index: number; page: number; width: number; height: number; data: string }>, totalFound: number): Promise<void> {
         if (images.length === 0) {
             const action = await vscode.window.showInformationMessage(
                 'No embedded raster images found. Charts and diagrams drawn as vector graphics won\'t appear here — use Screenshot (📷) to capture those pages instead.',
                 'Screenshot Current Page'
             );
             if (action === 'Screenshot Current Page') {
-                this.extractPages('current');
+                this.extractPages('current', undefined, panel);
             }
             return;
         }
@@ -485,8 +519,8 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         const screenshotsFolderName = config.get<string>('screenshotsFolder', 'PDF-Screenshots');
 
         // Create output directory
-        const pdfName = path.basename(this._activeDocument.uri.fsPath, '.pdf');
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || path.dirname(this._activeDocument.uri.fsPath);
+        const pdfName = path.basename(document.uri.fsPath, '.pdf');
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || path.dirname(document.uri.fsPath);
         const outputDir = path.join(workspaceFolder, screenshotsFolderName, pdfName);
 
         // Ensure directory exists
@@ -1380,6 +1414,10 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             for (let i = 0; i < pageNumbers.length; i++) {
                 const pageNum = pageNumbers[i];
 
+                if (pageNumbers.length > 1) {
+                    vscode.postMessage({ type: 'status', message: 'Extracting page ' + (i + 1) + ' of ' + pageNumbers.length + '...' });
+                }
+
                 try {
                     const page = await pdfDoc.getPage(pageNum);
                     const viewport = page.getViewport({ scale: quality * 1.5 });
@@ -1557,7 +1595,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                                 }
 
                                 const result = resolveImageData(imgData);
-                                if (result && result.width > 1 && result.height > 1) {
+                                if (result && result.width > 10 && result.height > 10) {
                                     imageIndex++;
                                     extractedImages.push({
                                         index: imageIndex,
@@ -1579,7 +1617,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                                 if (!imgData) continue;
 
                                 const result = resolveImageData(imgData);
-                                if (result && result.width > 1 && result.height > 1) {
+                                if (result && result.width > 10 && result.height > 10) {
                                     imageIndex++;
                                     extractedImages.push({
                                         index: imageIndex,
@@ -1757,16 +1795,12 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
 
         document.getElementById('screenshot-current').addEventListener('click', () => {
             screenshotDropdown.classList.remove('show');
-            extractPagesAsImages([currentPage], 2.0, 'png');
+            vscode.postMessage({ type: 'screenshotCurrent' });
         });
 
         document.getElementById('screenshot-all').addEventListener('click', () => {
             screenshotDropdown.classList.remove('show');
-            const allPages = [];
-            for (let i = 1; i <= totalPages; i++) {
-                allPages.push(i);
-            }
-            extractPagesAsImages(allPages, 2.0, 'png');
+            vscode.postMessage({ type: 'screenshotAll' });
         });
 
         document.getElementById('screenshot-custom').addEventListener('click', () => {
