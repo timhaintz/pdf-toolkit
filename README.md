@@ -18,6 +18,8 @@ A powerful PDF viewer extension for Visual Studio Code with native rendering and
   - [Custom Screenshot Wizard](#custom-screenshot-wizard)
   - [Page Extraction](#page-extraction)
 - [Configuration](#configuration)
+  - [Debug Logging](#debug-logging)
+  - [Changing the Screenshots Folder](#changing-the-screenshots-folder)
 - [Technical Details](#technical-details)
 - [Requirements](#requirements)
 - [Responsible Use](#responsible-use)
@@ -199,6 +201,16 @@ When you extract pages, they are saved to a `PDF-Screenshots/<pdf-name>/` folder
 | `pdfToolkit.extractionFormat` | `png` | Image format (`png` or `jpeg`) |
 | `pdfToolkit.screenshotsFolder` | `PDF-Screenshots` | Folder name for storing extracted screenshots |
 | `pdfToolkit.debug` | `false` | Enable debug logging to the Output panel (PDF Toolkit Debug channel) |
+
+### Debug Logging
+
+To enable debug logging:
+1. Open **Settings** (`Ctrl+,`) and search for `pdfToolkit.debug`
+2. Check the box to enable it
+3. Reopen any PDF file (the setting is applied when a PDF is opened)
+4. Open **View → Output** and select **PDF Toolkit Debug** from the dropdown
+
+Debug output includes search match details, text layer diagnostics, and other internal state useful for troubleshooting. Set `pdfToolkit.debug` to `false` (unchecked) to disable — there is zero overhead when disabled.
 
 ### Changing the Screenshots Folder
 
