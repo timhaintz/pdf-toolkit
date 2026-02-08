@@ -192,6 +192,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Release Notes
 
+### 2.1.x - Production Hardening & Search Fix
+Search highlighting rewritten with PDF.js built-in TextLayer API, zero-copy PDF loading, multi-editor support, branding header, and user-configurable debug logging.
+
+### 2.0.x - Image Extraction
+Extract embedded raster images (photos, bitmaps) directly from PDFs at native resolution with PDF.js v5 compatibility.
+
+### 1.10.x - Search & Outline
+Added in-document search (Ctrl+F) with match highlighting and navigation, plus a toggleable outline/TOC sidebar.
+
+### 1.9.x - Rotation, Dark Mode & Text Selection
+Page rotation, dark mode toggle, and selectable/copyable text via PDF.js text layer.
+
+### 1.8.x - Copilot Chat Integration
+Direct attachment of extracted images to GitHub Copilot Chat.
+
+### 1.7.x - Folder Management
+Auto-discovery of extracted PDFs, configurable screenshots folder, and refresh/rescan support.
+
 ### 1.6.x - Quality of Life Improvements
 Focus on user experience improvements including editable zoom, folder validation, and documentation updates.
 
