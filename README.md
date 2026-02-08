@@ -74,12 +74,14 @@ This is perfect for:
 - **All Pages**: Export every page of a PDF as individual images
 - **Custom Wizard**: Multi-step wizard to select specific pages, resolution (72-288 DPI), and format (PNG/JPEG)
 
-### Image Extraction (NEW in v2.0)
-- **Extract Embedded Images**: Extract charts, figures, photos, and other embedded images directly from PDFs
-- **Automatic Detection**: Scans all pages and extracts each embedded image as a separate file
+### Image Extraction
+- **Extract Embedded Images**: Extract embedded raster images (photos, bitmaps, pre-rendered figures) directly from PDFs at their native resolution
+- **Automatic Detection**: Scans all pages for embedded image objects (JPEG, PNG, inline images) using PDF.js operator analysis
 - **Smart Naming**: Filenames include image index, page number, and dimensions (e.g., `image_001_page3_800x600.png`)
 - **Copilot Integration**: Add extracted images directly to GitHub Copilot Chat for AI analysis
-- **Quality Settings**: Configurable DPI for extracted images
+- **Duplicate Detection**: Skips images that have already been extracted, with options to overwrite
+
+> **Note:** "Extract Images" finds embedded **raster** images (photos, bitmaps) stored inside the PDF. Charts and diagrams drawn as **vector graphics** (common from matplotlib, R/ggplot, Excel, LaTeX/TikZ) are not embedded images — use **Screenshot** to capture those pages instead.
 
 ## Installation
 
@@ -130,12 +132,12 @@ Simply open any `.pdf` file in VS Code. The PDF Toolkit will automatically displ
 | └ 📄 Current Page | Extract current page as image |
 | └ 📚 All Pages | Extract all pages as images |
 | └ ⚙️ Custom... | Open multi-step wizard for custom extraction |
-| └ 🖼️ Extract Images | Extract embedded images (charts, figures) |
+| └ 🖼️ Extract Images | Extract embedded raster images (photos, bitmaps) |
 | ↶ / ↷ | Rotate pages counter-clockwise / clockwise |
 | 🌙 | Toggle dark mode |
-| � Search | Search text within the PDF (Ctrl+F) |
+| 🔍 Search | Search text within the PDF (Ctrl+F) |
 | 📑 Outline | Toggle document outline/TOC sidebar |
-| �📁 Extracted | Browse previously extracted PDFs |
+| 📁 Extracted | Browse previously extracted PDFs |
 
 ### Keyboard Shortcuts
 
@@ -182,7 +184,7 @@ The **Custom** option in the screenshot menu opens a 3-step wizard:
 
 ### Page Extraction
 
-When you extract pages, they are saved to a `PDF-Screenshots/<pdf-name>` folder in your workspace. The extension tracks your extractions so you can easily:
+When you extract pages, they are saved to a `PDF-Screenshots/<pdf-name>/` folder in your workspace. Extracted embedded images are also saved to the same folder with descriptive filenames. The extension tracks your extractions so you can easily:
 - Browse previously extracted PDFs via the **📁 Extracted** button
 - Copy image references for Copilot Chat with one click
 - Manage your extraction history

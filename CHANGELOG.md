@@ -5,19 +5,27 @@ All notable changes to PDF Toolkit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.0] - 2026-01-28
+## [2.0.0] - 2026-02-08
 
 ### Added
-- **🖼️ Image Extraction**: Extract embedded images (charts, figures, photos) directly from PDFs
-  - New "Extract Images" option in the Screenshot menu
-  - Automatically detects and extracts all embedded images from the PDF
-  - Saves to `PDF-Screenshots/[filename]/images/` folder
-  - Filenames include page number and dimensions for easy identification
+- **🖼️ Image Extraction**: Extract embedded raster images (photos, bitmaps, pre-rendered figures) directly from PDFs at native resolution
+  - New "Extract Images" option in the Screenshot dropdown menu
+  - Scans all pages for embedded image objects (JPEG, PNG, inline images)
+  - Saves to `PDF-Screenshots/[filename]/` folder alongside page screenshots
+  - Filenames include image index, page number, and dimensions (e.g., `image_001_page3_800x600.png`)
   - Option to add extracted images directly to GitHub Copilot Chat
+  - Duplicate detection: skips already-extracted images with option to overwrite
+
+### Fixed
+- **PDF.js v5 compatibility**: Image extraction now correctly handles `ImageBitmap` objects returned by pdfjs-dist v5.x (previously silently failed to detect any images)
+- **Image object availability**: Pages are re-rendered before extraction to ensure PDF.js page objects are populated (fixes timeout errors on large PDFs)
+- **Inline image support**: Now detects inline images (OPS code 86) and image repeats (OPS code 88) in addition to standard XObject images
+- **Improved error reporting**: Extraction failures now log warnings to the console instead of being silently swallowed; user-facing message explains the difference between raster images and vector graphics
 
 ### Changed
 - Major version bump to reflect significant new functionality
 - Screenshot dropdown menu now includes image extraction option
+- "No images found" message now explains that vector graphics require Screenshot instead, with a one-click "Screenshot Current Page" action
 
 ## [1.10.0] - 2026-01-28
 

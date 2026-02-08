@@ -470,7 +470,13 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         }
 
         if (images.length === 0) {
-            vscode.window.showInformationMessage('No embedded images found in this PDF.');
+            const action = await vscode.window.showInformationMessage(
+                'No embedded raster images found. Charts and diagrams drawn as vector graphics won\'t appear here — use Screenshot (📷) to capture those pages instead.',
+                'Screenshot Current Page'
+            );
+            if (action === 'Screenshot Current Page') {
+                this.extractPages('current');
+            }
             return;
         }
 
@@ -481,7 +487,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         // Create output directory
         const pdfName = path.basename(this._activeDocument.uri.fsPath, '.pdf');
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || path.dirname(this._activeDocument.uri.fsPath);
-        const outputDir = path.join(workspaceFolder, screenshotsFolderName, pdfName, 'images');
+        const outputDir = path.join(workspaceFolder, screenshotsFolderName, pdfName);
 
         // Ensure directory exists
         await vscode.workspace.fs.createDirectory(vscode.Uri.file(outputDir));
@@ -962,7 +968,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                 <div class="divider"></div>
                 <button id="screenshot-custom" title="Custom screenshot options">⚙️ Custom...</button>
                 <div class="divider"></div>
-                <button id="extract-images" title="Extract embedded images (charts, figures, photos)">🖼️ Extract Images</button>
+                <button id="extract-images" title="Extract embedded raster images (photos, bitmaps) at native resolution. For vector charts/diagrams, use Screenshot instead.">🖼️ Extract Images</button>
             </div>
         </div>
         <button id="browse-extracted-btn" class="extract-btn" title="Browse previously extracted PDFs">📁 Extracted</button>
@@ -1417,103 +1423,188 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
 
             vscode.postMessage({ type: 'status', message: 'Scanning PDF for embedded images...' });
 
+            // PDF.js OPS constants
+            const OPS_paintJpegXObject = 82;
+            const OPS_paintImageXObject = 85;
+            const OPS_paintInlineImageXObject = 86;
+            const OPS_paintImageXObjectRepeat = 88;
+
+            // Helper: convert any image source to a PNG data URL via canvas
+            function imageToDataUrl(source, width, height) {
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(source, 0, 0);
+                return canvas.toDataURL('image/png');
+            }
+
+            // Helper: convert raw pixel data to a PNG data URL
+            function rawDataToDataUrl(data, width, height) {
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                const imageData = ctx.createImageData(width, height);
+
+                const pixelCount = width * height;
+                const dataLength = data.length;
+
+                if (dataLength === pixelCount * 4) {
+                    // RGBA data
+                    imageData.data.set(data);
+                } else if (dataLength === pixelCount * 3) {
+                    // RGB data - add alpha channel
+                    for (let j = 0, k = 0; j < dataLength; j += 3, k += 4) {
+                        imageData.data[k]     = data[j];
+                        imageData.data[k + 1] = data[j + 1];
+                        imageData.data[k + 2] = data[j + 2];
+                        imageData.data[k + 3] = 255;
+                    }
+                } else {
+                    // Grayscale or other format
+                    const bytesPerPixel = dataLength / pixelCount;
+                    for (let j = 0; j < pixelCount; j++) {
+                        const gray = data[Math.floor(j * bytesPerPixel)];
+                        imageData.data[j * 4]     = gray;
+                        imageData.data[j * 4 + 1] = gray;
+                        imageData.data[j * 4 + 2] = gray;
+                        imageData.data[j * 4 + 3] = 255;
+                    }
+                }
+
+                ctx.putImageData(imageData, 0, 0);
+                return canvas.toDataURL('image/png');
+            }
+
+            // Helper: extract data URL from an imgData object (handles v5 ImageBitmap, raw data, and src)
+            function resolveImageData(imgData) {
+                if (!imgData) return null;
+
+                let width  = imgData.width  || 0;
+                let height = imgData.height || 0;
+
+                // PDF.js v5: ImageBitmap returned directly
+                if (typeof ImageBitmap !== 'undefined' && imgData instanceof ImageBitmap) {
+                    width = imgData.width;
+                    height = imgData.height;
+                    return { dataUrl: imageToDataUrl(imgData, width, height), width, height };
+                }
+
+                // PDF.js v5: object with a .bitmap property (ImageBitmap)
+                if (imgData.bitmap && typeof ImageBitmap !== 'undefined' && imgData.bitmap instanceof ImageBitmap) {
+                    width  = imgData.bitmap.width  || width;
+                    height = imgData.bitmap.height || height;
+                    return { dataUrl: imageToDataUrl(imgData.bitmap, width, height), width, height };
+                }
+
+                // Legacy: already a data URL (JPEG)
+                if (imgData.src) {
+                    return { dataUrl: imgData.src, width, height };
+                }
+
+                // Legacy: raw pixel data
+                if (imgData.data && width && height) {
+                    return { dataUrl: rawDataToDataUrl(imgData.data, width, height), width, height };
+                }
+
+                return null;
+            }
+
             for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
                 try {
                     const page = await pdfDoc.getPage(pageNum);
+
+                    // Render page off-screen so PDF.js populates page.objs with image data.
+                    // Without this, objs may have been cleaned up since the initial render.
+                    const viewport = page.getViewport({ scale: 1.0 });
+                    const tmpCanvas = document.createElement('canvas');
+                    tmpCanvas.width  = viewport.width;
+                    tmpCanvas.height = viewport.height;
+                    const tmpCtx = tmpCanvas.getContext('2d');
+                    await page.render({ canvasContext: tmpCtx, viewport: viewport }).promise;
+
                     const operatorList = await page.getOperatorList();
-                    
-                    // Find all image objects in the operator list
+
+                    // Track already-processed XObject names to avoid duplicates on the same page
+                    const processedNames = new Set();
+
                     for (let i = 0; i < operatorList.fnArray.length; i++) {
                         const fn = operatorList.fnArray[i];
-                        
-                        // OPS.paintImageXObject = 85, OPS.paintJpegXObject = 82
-                        if (fn === 85 || fn === 82) {
+
+                        // --- XObject images (referenced by name in page.objs) ---
+                        if (fn === OPS_paintImageXObject || fn === OPS_paintJpegXObject || fn === OPS_paintImageXObjectRepeat) {
                             const imgName = operatorList.argsArray[i][0];
-                            
+                            if (processedNames.has(imgName)) continue;
+                            processedNames.add(imgName);
+
                             try {
-                                // Get the image object from the page
-                                const objs = page.objs;
-                                
-                                // Wait for the image object to be available
-                                await new Promise((resolve, reject) => {
-                                    objs.get(imgName, (imgData) => {
-                                        if (imgData) {
-                                            resolve(imgData);
-                                        } else {
-                                            reject(new Error('Image not found'));
-                                        }
+                                let imgData = null;
+
+                                // Try synchronous get first (object already resolved after render)
+                                try {
+                                    imgData = page.objs.get(imgName);
+                                } catch {
+                                    // Fall back to callback-based get with timeout
+                                    imgData = await new Promise((resolve, reject) => {
+                                        const timer = setTimeout(() => reject(new Error('Timeout waiting for image ' + imgName)), 8000);
+                                        page.objs.get(imgName, (data) => {
+                                            clearTimeout(timer);
+                                            if (data) { resolve(data); }
+                                            else { reject(new Error('No data for ' + imgName)); }
+                                        });
                                     });
-                                    
-                                    // Timeout after 5 seconds
-                                    setTimeout(() => reject(new Error('Timeout')), 5000);
-                                }).then(async (imgData) => {
-                                    // imgData contains width, height, and either data (raw) or src (data URL)
-                                    if (imgData && (imgData.data || imgData.src)) {
-                                        imageIndex++;
-                                        
-                                        let dataUrl;
-                                        
-                                        if (imgData.src) {
-                                            // Already a data URL (JPEG)
-                                            dataUrl = imgData.src;
-                                        } else if (imgData.data && imgData.width && imgData.height) {
-                                            // Raw image data - convert to canvas
-                                            const canvas = document.createElement('canvas');
-                                            canvas.width = imgData.width;
-                                            canvas.height = imgData.height;
-                                            const ctx = canvas.getContext('2d');
-                                            
-                                            // Create ImageData from the raw pixel data
-                                            const imageData = ctx.createImageData(imgData.width, imgData.height);
-                                            
-                                            // Copy the pixel data
-                                            if (imgData.data.length === imgData.width * imgData.height * 4) {
-                                                // RGBA data
-                                                imageData.data.set(imgData.data);
-                                            } else if (imgData.data.length === imgData.width * imgData.height * 3) {
-                                                // RGB data - need to add alpha
-                                                for (let j = 0, k = 0; j < imgData.data.length; j += 3, k += 4) {
-                                                    imageData.data[k] = imgData.data[j];
-                                                    imageData.data[k + 1] = imgData.data[j + 1];
-                                                    imageData.data[k + 2] = imgData.data[j + 2];
-                                                    imageData.data[k + 3] = 255;
-                                                }
-                                            } else {
-                                                // Grayscale or other format
-                                                const bytesPerPixel = imgData.data.length / (imgData.width * imgData.height);
-                                                for (let j = 0; j < imgData.width * imgData.height; j++) {
-                                                    const gray = imgData.data[j * bytesPerPixel];
-                                                    imageData.data[j * 4] = gray;
-                                                    imageData.data[j * 4 + 1] = gray;
-                                                    imageData.data[j * 4 + 2] = gray;
-                                                    imageData.data[j * 4 + 3] = 255;
-                                                }
-                                            }
-                                            
-                                            ctx.putImageData(imageData, 0, 0);
-                                            dataUrl = canvas.toDataURL('image/png');
-                                        }
-                                        
-                                        if (dataUrl) {
-                                            extractedImages.push({
-                                                index: imageIndex,
-                                                page: pageNum,
-                                                width: imgData.width,
-                                                height: imgData.height,
-                                                data: dataUrl
-                                            });
-                                        }
-                                    }
-                                }).catch(() => {
-                                    // Ignore errors for individual images
-                                });
+                                }
+
+                                const result = resolveImageData(imgData);
+                                if (result && result.width > 1 && result.height > 1) {
+                                    imageIndex++;
+                                    extractedImages.push({
+                                        index: imageIndex,
+                                        page: pageNum,
+                                        width: result.width,
+                                        height: result.height,
+                                        data: result.dataUrl
+                                    });
+                                }
                             } catch (imgError) {
-                                // Continue with next image
+                                console.warn('[PDF Toolkit] Failed to extract XObject image "' + imgName + '" on page ' + pageNum + ':', imgError);
+                            }
+                        }
+
+                        // --- Inline images (data embedded directly in the operator list) ---
+                        else if (fn === OPS_paintInlineImageXObject) {
+                            try {
+                                const imgData = operatorList.argsArray[i][0];
+                                if (!imgData) continue;
+
+                                const result = resolveImageData(imgData);
+                                if (result && result.width > 1 && result.height > 1) {
+                                    imageIndex++;
+                                    extractedImages.push({
+                                        index: imageIndex,
+                                        page: pageNum,
+                                        width: result.width,
+                                        height: result.height,
+                                        data: result.dataUrl
+                                    });
+                                }
+                            } catch (imgError) {
+                                console.warn('[PDF Toolkit] Failed to extract inline image on page ' + pageNum + ':', imgError);
                             }
                         }
                     }
+
+                    // Free temporary canvas memory
+                    tmpCanvas.width = 0;
+                    tmpCanvas.height = 0;
                 } catch (pageError) {
-                    console.error('Error scanning page ' + pageNum + ':', pageError);
+                    console.error('[PDF Toolkit] Error scanning page ' + pageNum + ':', pageError);
+                }
+
+                // Update progress
+                if (totalPages > 3) {
+                    vscode.postMessage({ type: 'status', message: 'Scanning page ' + pageNum + ' of ' + totalPages + '...' });
                 }
             }
 
