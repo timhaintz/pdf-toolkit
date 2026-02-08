@@ -33,8 +33,12 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
     /** Per-panel state to support multiple PDFs open simultaneously */
     private _panels: Map<vscode.WebviewPanel, { document: PdfDocument; zoom: number; totalPages: number; currentPage: number }> = new Map();
     private _activePanel: vscode.WebviewPanel | undefined;
+    private _outputChannel: vscode.OutputChannel;
 
-    constructor(public readonly context: vscode.ExtensionContext) {}
+    constructor(public readonly context: vscode.ExtensionContext) {
+        this._outputChannel = vscode.window.createOutputChannel('PDF Toolkit Debug');
+        this._outputChannel.appendLine('PDF Toolkit Debug channel ready');
+    }
 
     /**
      * Get the active panel and its state, or undefined if no panel is focused
@@ -203,6 +207,9 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                         break;
                     case 'status':
                         vscode.window.setStatusBarMessage(message.message, 3000);
+                        break;
+                    case 'debug':
+                        this._outputChannel.appendLine(message.message);
                         break;
                     case 'openCustomMenu':
                         vscode.commands.executeCommand('pdfToolkit.openCustomWizard', message.totalPages, message.currentPage);
@@ -779,20 +786,24 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             display: block;
         }
 
-        /* Text layer for text selection */
+        /* Text layer — official PDF.js TextLayer CSS (from pdfjs-dist/web/pdf_viewer.css) */
         .textLayer {
             position: absolute;
-            left: 0;
-            top: 0;
-            right: 0;
-            bottom: 0;
-            overflow: hidden;
-            opacity: 0.2;
-            line-height: 1.0;
-            user-select: text;
+            text-align: initial;
+            inset: 0;
+            overflow: clip;
+            opacity: 1;
+            line-height: 1;
+            -webkit-text-size-adjust: none;
+            -moz-text-size-adjust: none;
+            text-size-adjust: none;
+            forced-color-adjust: none;
+            transform-origin: 0 0;
+            caret-color: CanvasText;
+            z-index: 0;
         }
 
-        .textLayer > span {
+        .textLayer :is(span, br) {
             color: transparent;
             position: absolute;
             white-space: pre;
@@ -800,8 +811,45 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             transform-origin: 0% 0%;
         }
 
+        .textLayer {
+            --min-font-size: 1;
+            --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+            --min-font-size-inv: calc(1 / var(--min-font-size));
+        }
+
+        .textLayer > :not(.markedContent),
+        .textLayer .markedContent span:not(.markedContent) {
+            z-index: 1;
+            --font-height: 0;
+            font-size: calc(var(--text-scale-factor) * var(--font-height));
+            --scale-x: 1;
+            --rotate: 0deg;
+            transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+        }
+
+        .textLayer .markedContent {
+            display: contents;
+        }
+
         .textLayer ::selection {
-            background: rgba(0, 0, 255, 0.3);
+            background: rgba(0, 0, 255, 0.25);
+        }
+
+        .textLayer br::selection {
+            background: transparent;
+        }
+
+        .textLayer .endOfContent {
+            display: block;
+            position: absolute;
+            inset: 100% 0 0;
+            z-index: 0;
+            cursor: default;
+            user-select: none;
+        }
+
+        .textLayer .endOfContent.active {
+            top: 0;
         }
 
         /* Dark mode styles */
@@ -858,14 +906,31 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             cursor: not-allowed;
         }
 
-        /* Search highlight styles */
-        .textLayer mark.search-highlight {
+        /* Search highlight styles — uses PDF.js .highlight convention */
+        .textLayer .highlight {
+            margin: -1px;
+            padding: 1px;
             background-color: rgba(255, 255, 0, 0.4);
-            border-radius: 2px;
-            color: inherit;
+            border-radius: 4px;
         }
 
-        .textLayer mark.search-highlight.current {
+        .textLayer .highlight.appended {
+            position: initial;
+        }
+
+        .textLayer .highlight.begin {
+            border-radius: 4px 0 0 4px;
+        }
+
+        .textLayer .highlight.end {
+            border-radius: 0 4px 4px 0;
+        }
+
+        .textLayer .highlight.middle {
+            border-radius: 0;
+        }
+
+        .textLayer .highlight.selected {
             background-color: rgba(255, 165, 0, 0.6);
             outline: 2px solid orange;
         }
@@ -1037,9 +1102,8 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         let isDarkMode = false;
 
         // Search state
-        let searchMatches = [];  // Array of { pageNum, textContent, positions }
+        let searchMatches = [];
         let currentMatchIndex = -1;
-        let pageTextContents = []; // Cache text content for each page
 
         // Outline state
         let outlineItems = [];
@@ -1111,6 +1175,9 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             }
         }
 
+        // Per-page text layer data for search highlighting
+        let pageTextData = {}; // pageNum -> { textDivs: [], textContentItemsStr: [] }
+
         async function renderPage(pageNum, canvas, textLayer) {
             try {
                 const page = await pdfDoc.getPage(pageNum);
@@ -1124,6 +1191,9 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                 pageContent.style.width = viewport.width + 'px';
                 pageContent.style.height = viewport.height + 'px';
 
+                // Set the CSS custom property TextLayer needs for font sizing
+                pageContent.style.setProperty('--total-scale-factor', viewport.scale);
+
                 const context = canvas.getContext('2d');
                 const renderContext = {
                     canvasContext: context,
@@ -1132,25 +1202,23 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
 
                 await page.render(renderContext).promise;
 
-                // Render text layer for text selection
+                // Render text layer using PDF.js built-in TextLayer
                 if (textLayer) {
                     textLayer.innerHTML = '';
-                    textLayer.style.width = viewport.width + 'px';
-                    textLayer.style.height = viewport.height + 'px';
 
                     const textContent = await page.getTextContent();
-                    
-                    // Render each text item
-                    textContent.items.forEach(item => {
-                        const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
-                        const span = document.createElement('span');
-                        span.textContent = item.str;
-                        span.style.left = tx[4] + 'px';
-                        span.style.top = (viewport.height - tx[5]) + 'px';
-                        span.style.fontSize = Math.abs(tx[0]) + 'px';
-                        span.style.fontFamily = item.fontName || 'sans-serif';
-                        textLayer.appendChild(span);
+                    const textLayerInstance = new pdfjsLib.TextLayer({
+                        textContentSource: textContent,
+                        container: textLayer,
+                        viewport: viewport,
                     });
+                    await textLayerInstance.render();
+
+                    // Store references for search highlighting
+                    pageTextData[pageNum] = {
+                        textDivs: textLayerInstance.textDivs,
+                        textContentItemsStr: textLayerInstance.textContentItemsStr,
+                    };
                 }
             } catch (error) {
                 console.error('Error rendering page ' + pageNum + ':', error);
@@ -1212,23 +1280,53 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
 
             const lowerQuery = query.toLowerCase();
 
+            // Search through each page's text data from TextLayer
             for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-                const page = await pdfDoc.getPage(pageNum);
-                const textContent = await page.getTextContent();
-                
-                textContent.items.forEach((item, itemIndex) => {
-                    const text = item.str.toLowerCase();
-                    let pos = 0;
-                    while ((pos = text.indexOf(lowerQuery, pos)) !== -1) {
-                        searchMatches.push({
-                            pageNum: pageNum,
-                            itemIndex: itemIndex,
-                            position: pos,
-                            length: query.length
-                        });
-                        pos += 1;
+                const data = pageTextData[pageNum];
+                if (!data) continue;
+
+                const { textContentItemsStr } = data;
+
+                // Concatenate all text items on this page to find cross-item matches
+                let pageText = '';
+                const itemOffsets = []; // maps character offset in pageText -> { divIdx, charInDiv }
+                for (let i = 0; i < textContentItemsStr.length; i++) {
+                    const str = textContentItemsStr[i];
+                    for (let c = 0; c < str.length; c++) {
+                        itemOffsets.push({ divIdx: i, charInDiv: c });
                     }
-                });
+                    pageText += str;
+                }
+
+                function debugLog(msg) { vscode.postMessage({ type: 'debug', message: msg }); }
+                debugLog('[Search] Page ' + pageNum + ': ' + textContentItemsStr.length + ' text items, pageText length=' + pageText.length);
+                debugLog('[Search] Page ' + pageNum + ' first 5 items: ' + JSON.stringify(textContentItemsStr.slice(0, 5)));
+
+                const lowerPageText = pageText.toLowerCase();
+                let pos = 0;
+                while ((pos = lowerPageText.indexOf(lowerQuery, pos)) !== -1) {
+                    // Map the match start/end back to div indices and char offsets
+                    const startInfo = itemOffsets[pos];
+                    const endInfo = itemOffsets[pos + lowerQuery.length - 1];
+
+                    // Debug: show what we matched and where
+                    const matchedText = pageText.substring(pos, pos + lowerQuery.length);
+                    const contextBefore = pageText.substring(Math.max(0, pos - 15), pos);
+                    const contextAfter = pageText.substring(pos + lowerQuery.length, pos + lowerQuery.length + 15);
+                    debugLog('[Search] Match on page ' + pageNum + ': "...' + contextBefore + '[' + matchedText + ']' + contextAfter + '..."');
+                    debugLog('[Search]   divIdx=' + startInfo.divIdx + '-' + endInfo.divIdx + ', chars=' + startInfo.charInDiv + '-' + (endInfo.charInDiv + 1));
+                    debugLog('[Search]   startDiv text: "' + textContentItemsStr[startInfo.divIdx] + '"');
+                    debugLog('[Search]   startDiv DOM text: "' + (data.textDivs[startInfo.divIdx]?.textContent || 'N/A') + '"');
+
+                    searchMatches.push({
+                        pageNum: pageNum,
+                        startDivIdx: startInfo.divIdx,
+                        startCharIdx: startInfo.charInDiv,
+                        endDivIdx: endInfo.divIdx,
+                        endCharIdx: endInfo.charInDiv + 1, // exclusive
+                    });
+                    pos += 1;
+                }
             }
 
             if (searchMatches.length > 0) {
@@ -1241,75 +1339,139 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         }
 
         function highlightMatches() {
-            // Group matches by page and item so we can insert multiple <mark> elements per span
-            const bySpan = new Map(); // key: 'page-item' -> sorted array of {position, length, globalIndex}
+            clearSearchHighlights();
+
+            // Group matches by page
+            const matchesByPage = {};
             searchMatches.forEach((match, globalIndex) => {
-                const key = match.pageNum + '-' + match.itemIndex;
-                if (!bySpan.has(key)) {
-                    bySpan.set(key, { pageNum: match.pageNum, itemIndex: match.itemIndex, hits: [] });
+                if (!matchesByPage[match.pageNum]) {
+                    matchesByPage[match.pageNum] = [];
                 }
-                bySpan.get(key).hits.push({ position: match.position, length: match.length, globalIndex: globalIndex });
+                matchesByPage[match.pageNum].push(Object.assign({}, match, { globalIndex: globalIndex }));
             });
 
-            bySpan.forEach((group) => {
-                const textLayer = document.getElementById('text-layer-' + group.pageNum);
-                if (!textLayer) return;
-                const span = textLayer.children[group.itemIndex];
-                if (!span) return;
+            // For each page, split text divs to wrap matched portions
+            Object.keys(matchesByPage).forEach(function(pageNumStr) {
+                const pageNum = parseInt(pageNumStr);
+                const data = pageTextData[pageNum];
+                if (!data) return;
 
-                // Store original text for later restoration
-                if (!span.dataset.originalText) {
-                    span.dataset.originalText = span.textContent;
-                }
-                const originalText = span.dataset.originalText;
+                const { textDivs, textContentItemsStr } = data;
+                const matches = matchesByPage[pageNum];
 
-                // Sort hits by position descending isn't needed; build from left to right
-                const hits = group.hits.sort((a, b) => a.position - b.position);
-                let html = '';
-                let cursor = 0;
-                for (const hit of hits) {
-                    // Escape and add text before this match
-                    html += escapeHtml(originalText.substring(cursor, hit.position));
-                    const matchedText = originalText.substring(hit.position, hit.position + hit.length);
-                    const currentClass = hit.globalIndex === currentMatchIndex ? ' current' : '';
-                    html += '<mark class="search-highlight' + currentClass + '" data-match-index="' + hit.globalIndex + '">' + escapeHtml(matchedText) + '</mark>';
-                    cursor = hit.position + hit.length;
-                }
-                html += escapeHtml(originalText.substring(cursor));
-                span.innerHTML = html;
+                // Build a map: divIdx -> array of { start, end, globalIndex, cssClass }
+                const divHighlights = {};
+                matches.forEach(function(match) {
+                    for (let d = match.startDivIdx; d <= match.endDivIdx; d++) {
+                        if (!divHighlights[d]) divHighlights[d] = [];
+                        const divText = textContentItemsStr[d];
+                        const hStart = (d === match.startDivIdx) ? match.startCharIdx : 0;
+                        const hEnd = (d === match.endDivIdx) ? match.endCharIdx : divText.length;
+
+                        let cssClass = 'highlight appended';
+                        if (match.startDivIdx === match.endDivIdx) {
+                            // Entire match in one div — no begin/middle/end needed
+                        } else if (d === match.startDivIdx) {
+                            cssClass = 'highlight begin appended';
+                        } else if (d === match.endDivIdx) {
+                            cssClass = 'highlight end appended';
+                        } else {
+                            cssClass = 'highlight middle appended';
+                        }
+
+                        if (match.globalIndex === currentMatchIndex) {
+                            cssClass += ' selected';
+                        }
+
+                        divHighlights[d].push({
+                            start: hStart,
+                            end: hEnd,
+                            globalIndex: match.globalIndex,
+                            cssClass: cssClass
+                        });
+                    }
+                });
+
+                // Sort highlights within each div by start position
+                Object.keys(divHighlights).forEach(function(dStr) {
+                    divHighlights[dStr].sort(function(a, b) { return a.start - b.start; });
+                });
+
+                // Apply highlights by rebuilding div content
+                Object.keys(divHighlights).forEach(function(dStr) {
+                    const d = parseInt(dStr);
+                    const div = textDivs[d];
+                    if (!div) return;
+                    const originalText = textContentItemsStr[d];
+                    if (!originalText) return;
+
+                    vscode.postMessage({ type: 'debug', message: '[Highlight] Page ' + pageNum + ' div[' + d + ']: text="' + originalText + '", inDOM=' + !!div.parentElement + ', pos=' + div.style.left + ',' + div.style.top });
+
+                    const highlights = divHighlights[d];
+                    const fragment = document.createDocumentFragment();
+                    let lastEnd = 0;
+
+                    highlights.forEach(function(h) {
+                        // Text before this highlight
+                        if (h.start > lastEnd) {
+                            fragment.appendChild(document.createTextNode(originalText.substring(lastEnd, h.start)));
+                        }
+                        // Highlighted portion
+                        const hlSpan = document.createElement('span');
+                        hlSpan.className = h.cssClass;
+                        hlSpan.dataset.matchIndex = h.globalIndex;
+                        hlSpan.textContent = originalText.substring(h.start, h.end);
+                        fragment.appendChild(hlSpan);
+                        lastEnd = h.end;
+                    });
+
+                    // Remaining text after last highlight
+                    if (lastEnd < originalText.length) {
+                        fragment.appendChild(document.createTextNode(originalText.substring(lastEnd)));
+                    }
+
+                    div.textContent = '';
+                    div.appendChild(fragment);
+                });
             });
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
         }
 
         function clearSearchHighlights() {
-            // Restore original text content for all spans that were modified
-            document.querySelectorAll('.textLayer span[data-original-text]').forEach(span => {
-                span.textContent = span.dataset.originalText;
-                delete span.dataset.originalText;
+            // Restore original text content for any divs that have highlights
+            Object.keys(pageTextData).forEach(function(pageNumStr) {
+                const data = pageTextData[parseInt(pageNumStr)];
+                if (!data) return;
+
+                const { textDivs, textContentItemsStr } = data;
+                for (let i = 0; i < textDivs.length; i++) {
+                    const div = textDivs[i];
+                    if (div.querySelector('.highlight')) {
+                        div.textContent = textContentItemsStr[i];
+                    }
+                }
             });
         }
 
         function goToCurrentMatch() {
             if (currentMatchIndex < 0 || currentMatchIndex >= searchMatches.length) return;
-            
+
             const match = searchMatches[currentMatchIndex];
-            
-            // Remove 'current' class from all marks, add to current
-            document.querySelectorAll('mark.search-highlight.current').forEach(el => {
-                el.classList.remove('current');
+
+            // Update all highlights — remove 'selected' from old, add to new
+            document.querySelectorAll('.textLayer .highlight.selected').forEach(function(el) {
+                el.classList.remove('selected');
             });
-            
-            const mark = document.querySelector('mark[data-match-index="' + currentMatchIndex + '"]');
-            if (mark) {
-                mark.classList.add('current');
-                mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+            const currentElements = document.querySelectorAll('.highlight[data-match-index="' + currentMatchIndex + '"]');
+            currentElements.forEach(function(el) {
+                el.classList.add('selected');
+            });
+
+            // Scroll the first element of the current match into view
+            if (currentElements.length > 0) {
+                currentElements[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
-            
+
             // Update page indicator
             currentPage = match.pageNum;
             pageInput.value = currentPage;
