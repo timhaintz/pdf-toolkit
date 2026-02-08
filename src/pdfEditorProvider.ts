@@ -859,12 +859,13 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         }
 
         /* Search highlight styles */
-        .search-highlight {
+        .textLayer mark.search-highlight {
             background-color: rgba(255, 255, 0, 0.4);
             border-radius: 2px;
+            color: inherit;
         }
 
-        .search-highlight.current {
+        .textLayer mark.search-highlight.current {
             background-color: rgba(255, 165, 0, 0.6);
             outline: 2px solid orange;
         }
@@ -1240,22 +1241,56 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         }
 
         function highlightMatches() {
-            // Add highlight class to matching text layer spans
-            searchMatches.forEach((match, index) => {
-                const textLayer = document.getElementById('text-layer-' + match.pageNum);
-                if (textLayer && textLayer.children[match.itemIndex]) {
-                    const span = textLayer.children[match.itemIndex];
-                    span.classList.add('search-highlight');
-                    if (index === currentMatchIndex) {
-                        span.classList.add('current');
-                    }
+            // Group matches by page and item so we can insert multiple <mark> elements per span
+            const bySpan = new Map(); // key: 'page-item' -> sorted array of {position, length, globalIndex}
+            searchMatches.forEach((match, globalIndex) => {
+                const key = match.pageNum + '-' + match.itemIndex;
+                if (!bySpan.has(key)) {
+                    bySpan.set(key, { pageNum: match.pageNum, itemIndex: match.itemIndex, hits: [] });
                 }
+                bySpan.get(key).hits.push({ position: match.position, length: match.length, globalIndex: globalIndex });
+            });
+
+            bySpan.forEach((group) => {
+                const textLayer = document.getElementById('text-layer-' + group.pageNum);
+                if (!textLayer) return;
+                const span = textLayer.children[group.itemIndex];
+                if (!span) return;
+
+                // Store original text for later restoration
+                if (!span.dataset.originalText) {
+                    span.dataset.originalText = span.textContent;
+                }
+                const originalText = span.dataset.originalText;
+
+                // Sort hits by position descending isn't needed; build from left to right
+                const hits = group.hits.sort((a, b) => a.position - b.position);
+                let html = '';
+                let cursor = 0;
+                for (const hit of hits) {
+                    // Escape and add text before this match
+                    html += escapeHtml(originalText.substring(cursor, hit.position));
+                    const matchedText = originalText.substring(hit.position, hit.position + hit.length);
+                    const currentClass = hit.globalIndex === currentMatchIndex ? ' current' : '';
+                    html += '<mark class="search-highlight' + currentClass + '" data-match-index="' + hit.globalIndex + '">' + escapeHtml(matchedText) + '</mark>';
+                    cursor = hit.position + hit.length;
+                }
+                html += escapeHtml(originalText.substring(cursor));
+                span.innerHTML = html;
             });
         }
 
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
         function clearSearchHighlights() {
-            document.querySelectorAll('.search-highlight').forEach(el => {
-                el.classList.remove('search-highlight', 'current');
+            // Restore original text content for all spans that were modified
+            document.querySelectorAll('.textLayer span[data-original-text]').forEach(span => {
+                span.textContent = span.dataset.originalText;
+                delete span.dataset.originalText;
             });
         }
 
@@ -1264,17 +1299,15 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             
             const match = searchMatches[currentMatchIndex];
             
-            // Remove current highlight from all
-            document.querySelectorAll('.search-highlight.current').forEach(el => {
+            // Remove 'current' class from all marks, add to current
+            document.querySelectorAll('mark.search-highlight.current').forEach(el => {
                 el.classList.remove('current');
             });
             
-            // Add current highlight to current match
-            const textLayer = document.getElementById('text-layer-' + match.pageNum);
-            if (textLayer && textLayer.children[match.itemIndex]) {
-                const span = textLayer.children[match.itemIndex];
-                span.classList.add('current');
-                span.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            const mark = document.querySelector('mark[data-match-index="' + currentMatchIndex + '"]');
+            if (mark) {
+                mark.classList.add('current');
+                mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
             
             // Update page indicator
