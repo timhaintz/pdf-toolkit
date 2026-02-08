@@ -168,6 +168,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             enableScripts: true,
             localResourceRoots: [
                 vscode.Uri.joinPath(this.context.extensionUri, 'media'),
+                vscode.Uri.joinPath(this.context.extensionUri, 'images'),
                 vscode.Uri.joinPath(this.context.extensionUri, 'node_modules', 'pdfjs-dist'),
                 vscode.Uri.file(path.dirname(document.uri.fsPath)),
             ]
@@ -184,11 +185,17 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         // Serve the PDF file directly to the webview via URI — no base64 copy needed
         const pdfUri = webviewPanel.webview.asWebviewUri(document.uri);
 
+        // Extension icon for branding header
+        const iconUri = webviewPanel.webview.asWebviewUri(
+            vscode.Uri.joinPath(this.context.extensionUri, 'images', 'icon.png')
+        );
+
         webviewPanel.webview.html = this.getHtmlContent(
             webviewPanel.webview,
             pdfJsUri,
             pdfWorkerUri,
             pdfUri,
+            iconUri,
             this.debugEnabled
         );
 
@@ -227,6 +234,9 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                         break;
                     case 'debug':
                         this.debugLog(message.message);
+                        break;
+                    case 'openExtension':
+                        vscode.commands.executeCommand('extension.open', 'TimHaintz.pdf-toolkit');
                         break;
                     case 'openCustomMenu':
                         vscode.commands.executeCommand('pdfToolkit.openCustomWizard', message.totalPages, message.currentPage);
@@ -608,6 +618,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         pdfJsUri: vscode.Uri,
         pdfWorkerUri: vscode.Uri,
         pdfUri: vscode.Uri,
+        iconUri: vscode.Uri,
         debugEnabled: boolean = false
     ): string {
         const nonce = this.getNonce();
@@ -634,6 +645,37 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             height: 100vh;
             display: flex;
             flex-direction: column;
+        }
+
+        .branding {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 16px;
+            background-color: var(--vscode-titleBar-activeBackground);
+            border-bottom: 1px solid var(--vscode-titleBar-border, transparent);
+        }
+
+        .branding img {
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+        }
+
+        .branding a {
+            color: var(--vscode-foreground);
+            text-decoration: none;
+            font-size: 12px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            opacity: 0.85;
+        }
+
+        .branding a:hover {
+            opacity: 1;
+            color: var(--vscode-textLink-foreground);
         }
 
         .toolbar {
@@ -1045,6 +1087,12 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
     </style>
 </head>
 <body>
+    <div class="branding">
+        <a href="#" id="branding-link" title="View PDF Toolkit extension details">
+            <img src="${iconUri}" alt="PDF Toolkit">
+            PDF Toolkit
+        </a>
+    </div>
     <div class="toolbar">
         <button id="prev-page" title="Previous Page">◀ Prev</button>
         <span>Page</span>
@@ -1853,6 +1901,11 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         }
 
         // Event listeners
+        document.getElementById('branding-link').addEventListener('click', (e) => {
+            e.preventDefault();
+            vscode.postMessage({ type: 'openExtension' });
+        });
+
         document.getElementById('prev-page').addEventListener('click', () => {
             if (currentPage > 1) {
                 scrollToPage(currentPage - 1);
