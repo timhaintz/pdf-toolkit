@@ -7,12 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.1.0] - 2026-02-08
 
+### Added
+- **Branding header**: PDF Toolkit logo and name displayed above the toolbar; clickable to open the extension details page
+- **Debug logging setting**: New `pdfToolkit.debug` setting to enable diagnostic logging to the Output panel (PDF Toolkit Debug channel) — zero overhead when disabled
+
 ### Changed
 - **Zero-copy PDF loading**: PDFs are now served to the webview via URI instead of base64 encoding, eliminating ~4x memory overhead for large files
 - **Multi-editor support**: Opening multiple PDFs simultaneously now works correctly; zoom, extraction, and screenshots target the focused editor
 - **Screenshot buttons** now respect user-configured quality and format settings instead of hardcoding 2.0x PNG
 
 ### Fixed
+- **Search highlighting**: Rewrote search to use PDF.js built-in `TextLayer` API with proper span-splitting highlights — matches are now accurately highlighted on the correct text
 - **Config namespace**: Screenshot extraction settings now read from the correct `pdfToolkit` namespace (was incorrectly reading `pdfViewer`)
 - **Memory leak**: `PdfDocument` no longer holds file data in memory after the webview is set up
 - **Image filter threshold**: Increased minimum image size from 1x1 to 10x10 pixels to avoid capturing noise artefacts
