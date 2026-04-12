@@ -98,6 +98,11 @@
         "title": "Browse Extracted PDFs",
         "category": "PDF Toolkit",
         "icon": "$(folder-library)"
+      },
+      {
+        "command": "pdfToolkit.attachExtractedToCopilot",
+        "title": "Attach Extracted Pages to Copilot Chat",
+        "category": "PDF Toolkit"
       }
     ],
     "configuration": {

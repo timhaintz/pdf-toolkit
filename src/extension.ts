@@ -113,6 +113,18 @@ export function activate(context: vscode.ExtensionContext) {
             await browseExtractedPdfs(pdfEditorProvider);
         })
     );
+
+    // Programmatic command to attach extracted PDF images to Copilot Chat
+    context.subscriptions.push(
+        vscode.commands.registerCommand('pdfToolkit.attachExtractedToCopilot', async (args?: {
+            pdf?: string;
+            folder?: string;
+            pages?: string;
+            files?: string[];
+        }) => {
+            await attachExtractedToCopilot(pdfEditorProvider, args);
+        })
+    );
 }
 
 /**
@@ -402,6 +414,174 @@ async function runCustomExtractionWizard(pdfEditorProvider: PdfEditorProvider, t
         resolution.value,
         format.value
     );
+}
+
+/**
+ * Programmatically attach extracted PDF images to Copilot Chat.
+ * 
+ * Accepts args:
+ * - pdf: name of a previously extracted PDF (matches subfolder name)
+ * - folder: explicit absolute path to a folder of images
+ * - pages: page range string like "1,3,5-8" to filter images
+ * - files: explicit list of filenames to attach
+ */
+async function attachExtractedToCopilot(
+    pdfEditorProvider: PdfEditorProvider,
+    args?: {
+        pdf?: string;
+        folder?: string;
+        pages?: string;
+        files?: string[];
+    }
+): Promise<void> {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) {
+        vscode.window.showErrorMessage('No workspace folder open.');
+        return;
+    }
+
+    // If no args provided, show interactive picker
+    if (!args || (!args.pdf && !args.folder)) {
+        const folderName = PdfEditorProvider.getScreenshotsFolderName();
+        const screenshotsDir = path.join(workspaceFolders[0].uri.fsPath, folderName);
+        const discovered = await scanScreenshotsFolder(screenshotsDir);
+
+        if (discovered.length === 0) {
+            vscode.window.showInformationMessage('No extracted PDFs found. Use the Screenshot button to extract pages from a PDF first.');
+            return;
+        }
+
+        const pdfPick = await vscode.window.showQuickPick(
+            discovered.map(pdf => ({
+                label: pdf.name,
+                description: `${pdf.pageCount} page(s)`,
+                pdf
+            })),
+            { title: '📎 Attach to Copilot Chat', placeHolder: 'Select an extracted PDF' }
+        );
+        if (!pdfPick) { return; }
+
+        // Ask for optional page selection
+        const pageRange = await vscode.window.showInputBox({
+            title: 'Select Pages (optional)',
+            prompt: `Enter page numbers/ranges to attach, or leave empty for all ${pdfPick.pdf.pageCount} page(s)`,
+            placeHolder: 'e.g., 1,3,5-8 or leave empty for all'
+        });
+        if (pageRange === undefined) { return; } // cancelled
+
+        args = {
+            pdf: pdfPick.pdf.name,
+            pages: pageRange || undefined
+        };
+    }
+
+    let targetFolder: string;
+
+    if (args.folder) {
+        targetFolder = args.folder;
+    } else {
+        // Resolve from the screenshots directory using the pdf name
+        const folderName = PdfEditorProvider.getScreenshotsFolderName();
+        targetFolder = path.join(workspaceFolders[0].uri.fsPath, folderName, args.pdf!);
+    }
+
+    // Verify the folder exists
+    try {
+        await vscode.workspace.fs.stat(vscode.Uri.file(targetFolder));
+    } catch {
+        vscode.window.showErrorMessage(`Folder not found: ${targetFolder}`);
+        return;
+    }
+
+    // Read image files from the folder
+    let entries: [string, vscode.FileType][];
+    try {
+        entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(targetFolder));
+    } catch {
+        vscode.window.showErrorMessage(`Cannot read folder: ${targetFolder}`);
+        return;
+    }
+
+    let imageFiles = entries
+        .filter(([name, type]) => type === vscode.FileType.File && /\.(png|jpe?g)$/i.test(name))
+        .map(([name]) => name)
+        .sort();
+
+    if (imageFiles.length === 0) {
+        vscode.window.showWarningMessage('No image files found in the specified folder.');
+        return;
+    }
+
+    // Filter by explicit file list
+    if (args.files && args.files.length > 0) {
+        const requestedSet = new Set(args.files);
+        imageFiles = imageFiles.filter(f => requestedSet.has(f));
+    }
+
+    // Filter by page range
+    if (args.pages) {
+        const pageNumbers = parsePageRangeForAttach(args.pages);
+        if (pageNumbers.length > 0) {
+            imageFiles = imageFiles.filter(f => {
+                const match = f.match(/page_(\d+)/);
+                if (match) {
+                    return pageNumbers.includes(parseInt(match[1], 10));
+                }
+                return false;
+            });
+        }
+    }
+
+    if (imageFiles.length === 0) {
+        vscode.window.showWarningMessage('No images match the specified selection.');
+        return;
+    }
+
+    if (imageFiles.length > 20) {
+        vscode.window.showWarningMessage(
+            `Selection contains ${imageFiles.length} images, which exceeds Copilot Chat's 20-image limit. Please narrow your selection.`
+        );
+        return;
+    }
+
+    const imageUris = imageFiles.map(f => vscode.Uri.file(path.join(targetFolder, f)));
+
+    await vscode.commands.executeCommand('workbench.action.chat.open', {
+        query: '',
+        attachFiles: imageUris
+    });
+    vscode.window.showInformationMessage(`Attached ${imageFiles.length} image(s) to Copilot Chat.`);
+}
+
+/**
+ * Parse a page range string (e.g. "1,3,5-8") into an array of page numbers.
+ * Used by the programmatic attach command — no maxPage cap needed since
+ * we filter against actual filenames.
+ */
+function parsePageRangeForAttach(rangeStr: string): number[] {
+    const pages: Set<number> = new Set();
+    const parts = rangeStr.split(',');
+
+    for (const part of parts) {
+        const trimmed = part.trim();
+        if (trimmed.includes('-')) {
+            const [startStr, endStr] = trimmed.split('-').map(s => s.trim());
+            const start = parseInt(startStr, 10);
+            const end = parseInt(endStr, 10);
+            if (!isNaN(start) && !isNaN(end) && start >= 1 && end >= start) {
+                for (let i = start; i <= end; i++) {
+                    pages.add(i);
+                }
+            }
+        } else {
+            const page = parseInt(trimmed, 10);
+            if (!isNaN(page) && page >= 1) {
+                pages.add(page);
+            }
+        }
+    }
+
+    return Array.from(pages).sort((a, b) => a - b);
 }
 
 export function deactivate() {}
