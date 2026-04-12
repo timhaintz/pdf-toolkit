@@ -360,7 +360,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
     /**
      * Parse page range string like "1,3,5-10" into array of page numbers
      */
-    private parsePageRange(rangeStr: string, maxPage: number): number[] {
+    public parsePageRange(rangeStr: string, maxPage: number): number[] {
         const pages: Set<number> = new Set();
         const parts = rangeStr.split(',');
 
