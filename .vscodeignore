@@ -8,3 +8,6 @@ src/**
 **/*.ts
 node_modules/**
 !node_modules/pdfjs-dist/**
+.github/**
+test/**
+eslint.config.cjs
