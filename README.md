@@ -271,6 +271,19 @@ Contributions are welcome! Here's how you can help:
 
 Please ensure your code follows the existing style and includes appropriate tests.
 
+Run the same checks as CI with Node.js 22:
+
+```bash
+npm ci --ignore-scripts
+npm run lint
+npm test
+npm audit --audit-level=moderate
+```
+
+`npm test` compiles the extension and tests editor behavior with a VS Code adapter.
+CodeQL analyzes TypeScript/JavaScript and GitHub Actions on pull requests, pushes
+to `main`, and a weekly schedule.
+
 ## Issues & Feature Requests
 
 Found a bug or have an idea for a new feature?
