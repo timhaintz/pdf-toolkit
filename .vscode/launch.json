@@ -2,27 +2,21 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Run Extension",
+            "name": "Run Extension (temporary profile)",
             "type": "extensionHost",
             "request": "launch",
             "args": [
-                "--extensionDevelopmentPath=${workspaceFolder}"
+                "${workspaceFolder}/test/fixtures",
+                "--extensionDevelopmentPath=${workspaceFolder}",
+                "--profile-temp",
+                "--disable-extension=github.copilot",
+                "--disable-extension=github.copilot-chat",
+                "--disable-workspace-trust",
+                "--skip-welcome",
+                "--skip-release-notes"
             ],
             "outFiles": [
                 "${workspaceFolder}/out/**/*.js"
-            ],
-            "preLaunchTask": "${defaultBuildTask}"
-        },
-        {
-            "name": "Extension Tests",
-            "type": "extensionHost",
-            "request": "launch",
-            "args": [
-                "--extensionDevelopmentPath=${workspaceFolder}",
-                "--extensionTestsPath=${workspaceFolder}/out/test/suite/index"
-            ],
-            "outFiles": [
-                "${workspaceFolder}/out/test/**/*.js"
             ],
             "preLaunchTask": "${defaultBuildTask}"
         }

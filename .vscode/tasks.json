@@ -21,6 +21,18 @@
             "presentation": {
                 "reveal": "silent"
             }
+        },
+        {
+            "type": "npm",
+            "script": "test:integration",
+            "label": "Test extension in isolated VS Code",
+            "problemMatcher": []
+        },
+        {
+            "type": "npm",
+            "script": "package:vsix",
+            "label": "Build local VSIX (lint and unit tests)",
+            "problemMatcher": []
         }
     ]
 }

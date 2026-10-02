@@ -1,0 +1,7 @@
+{
+    "pdfToolkit.extractionQuality": 1,
+    "pdfToolkit.extractionFormat": "png",
+    "pdfToolkit.debug": true,
+    "chat.disableAIFeatures": true,
+    "workbench.startupEditor": "none"
+}

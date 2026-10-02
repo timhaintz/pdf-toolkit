@@ -44,7 +44,7 @@ Ensure `package.json` has these key fields:
   "name": "pdf-toolkit",
   "displayName": "PDF Toolkit",
   "publisher": "TimHaintz",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "engines": { "vscode": "^1.96.0" },
   "icon": "images/icon.png",
   "repository": { "type": "git", "url": "https://github.com/timhaintz/pdf-toolkit" },
@@ -97,17 +97,28 @@ This updates `package.json`, creates a git commit and tag, then publishes.
 
 ### Package only (without publishing)
 
-To build a `.vsix` file for local testing or manual upload:
+To build a `.vsix` file for local testing or manual upload after lint and unit checks:
 
 ```powershell
-npx @vscode/vsce package
+npm run package:vsix
 ```
 
-Install it locally with:
+The artifact is written to `artifacts/pdf-toolkit-<version>.vsix`. Test it in a
+temporary VS Code profile and workspace before publishing:
 
 ```powershell
-code --install-extension pdf-toolkit-<version>.vsix --force
+npm run test:integration -- --packaged
 ```
+
+### Publish the tested package
+
+Upload the exact VSIX that passed testing, without rebuilding it:
+
+```powershell
+npx @vscode/vsce publish --packagePath artifacts/pdf-toolkit-2.2.0.vsix
+```
+
+For later releases, replace `2.2.0` with that release's version.
 
 ## 7. Verify
 
@@ -120,11 +131,21 @@ It may take a few minutes for the listing to fully propagate.
 
 ## Update Workflow (for future releases)
 
-1. Make code changes
-2. Update `CHANGELOG.md`
-3. Compile and test: `npm run compile`
-4. Commit and push to git
-5. Publish: `npx @vscode/vsce publish patch` (or `minor` / `major`)
+1. Create a feature branch from current `main` and make the change.
+2. Run `npm run lint` and `npm test` (compilation alone does not run tests).
+3. Run `npm run test:integration` to verify startup, real PDF rendering, and exports in an isolated VS Code instance.
+4. Press F5 using **Run Extension (temporary profile)** and complete the manual checks in [DEVELOPMENT.md](DEVELOPMENT.md), including Copilot attachment when relevant.
+5. Run `npm run package:vsix`, then `npm run test:integration -- --packaged` to test the source and the actual distributable. These commands do not publish.
+6. Review the PR and passing CI, update the release version and changelog, and rebuild/retest the final package.
+7. Merge the approved PR after CI passes, then publish the tested artifact with `npx @vscode/vsce publish --packagePath artifacts/pdf-toolkit-<version>.vsix`.
+
+The GitHub Actions workflows run validation and CodeQL on PRs and `main`.
+They do not publish to the VS Code Marketplace. Publishing is a separate,
+authenticated step; merging a PR or pushing to `main` alone does not release it.
+
+Keep the previously released VSIX available. If the new release needs to be
+reverted, restore the previous behavior and publish a higher patch version;
+installed clients normally update to increasing versions.
 
 ## Troubleshooting
 
@@ -133,7 +154,7 @@ It may take a few minutes for the listing to fully propagate.
 | PAT expired | Create a new one at Azure DevOps → Personal Access Tokens |
 | `not authorized` error | PAT needs **All accessible organizations** and **Marketplace → Manage** scope |
 | `publisher not found` | Create publisher at https://marketplace.visualstudio.com/manage |
-| Changes not visible after install | An older installed VSIX can silently override dev code — package and install locally first |
+| Changes not visible during development | Use the isolated F5 profile, verify the development extension is active, and reload the development host after compilation |
 | `verify-pat` hangs or fails | Try `npx @vscode/vsce login <PublisherID>` with a fresh PAT |
 
 ## References
