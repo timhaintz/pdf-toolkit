@@ -24,6 +24,7 @@ A powerful PDF viewer extension for Visual Studio Code with native rendering and
 - [Requirements](#requirements)
 - [Responsible Use](#responsible-use)
 - [Contributing](#contributing)
+- [Development and Testing](DEVELOPMENT.md)
 - [Issues & Feature Requests](#issues--feature-requests)
 - [License](#license)
 - [Author](#author)
@@ -75,6 +76,7 @@ This is perfect for:
 - **Current Page**: Save the currently viewed page as a PNG/JPEG image
 - **All Pages**: Export every page of a PDF as individual images
 - **Custom Wizard**: Multi-step wizard to select specific pages, resolution (72-288 DPI), and format (PNG/JPEG)
+- **Composite PNGs**: Combine selected pages in a vertical stack or 2×2 grid, with optional spacing and page labels. Group longer selections into multiple images automatically.
 
 ### Image Extraction
 - **Extract Embedded Images**: Extract embedded raster images (photos, bitmaps, pre-rendered figures) directly from PDFs at their native resolution
@@ -134,6 +136,7 @@ Simply open any `.pdf` file in VS Code. The PDF Toolkit will automatically displ
 | └ 📄 Current Page | Extract current page as image |
 | └ 📚 All Pages | Extract all pages as images |
 | └ ⚙️ Custom... | Open multi-step wizard for custom extraction |
+| └ ▦ Composite... | Combine selected pages into PNG images |
 | └ 🖼️ Extract Images | Extract embedded raster images (photos, bitmaps) |
 | ↶ / ↷ | Rotate pages counter-clockwise / clockwise |
 | 🌙 | Toggle dark mode |
@@ -167,6 +170,7 @@ Access via Command Palette (`Ctrl+Shift+P`):
 - `PDF Toolkit: Screenshot All Pages` - Export all pages as images
 - `PDF Toolkit: Screenshot Current Page` - Export currently viewed page
 - `PDF Toolkit: Screenshot Custom...` - Open multi-step wizard for custom extraction
+- `PDF Toolkit: Screenshot Composite...` - Combine selected pages into PNG images
 - `PDF Toolkit: Browse Extracted PDFs` - View and manage previously extracted PDFs
 - `PDF Toolkit: Zoom In` - Increase zoom level
 - `PDF Toolkit: Zoom Out` - Decrease zoom level
@@ -190,6 +194,27 @@ When you extract pages, they are saved to a `PDF-Screenshots/<pdf-name>/` folder
 - Browse previously extracted PDFs via the **📁 Extracted** button
 - Copy image references for Copilot Chat with one click
 - Manage your extraction history
+
+### Composite Screenshots
+
+Choose **📷 Screenshot → Composite...**, or run **PDF Toolkit: Screenshot Composite...**.
+Select pages/ranges (such as `1-16`), a 2×2 grid or vertical stack, maximum pages
+per image, resolution, and appearance. For example, a 16-page selection grouped
+four at a time produces four PNGs. The final image can contain fewer pages.
+
+Composites use a white background and are saved separately in
+`PDF-Screenshots/<pdf-name>-composites/`, so browsing and attaching them does not
+mix them with individual page screenshots. Filenames identify the included pages,
+layout, resolution, and appearance. Existing files require an overwrite decision.
+Each image keeps the selected resolution; groups split further if they would exceed
+8,192 pixels on either side or 32 million pixels. If a single page is too large,
+choose a lower resolution. Large stitched images may become harder to read when
+an assistant resizes them; use smaller groups or higher resolution as appropriate.
+
+Use **Add to Copilot Chat** after export, or select the composite folder in
+**Attach Extracted Pages to Copilot Chat**. A page filter attaches an entire
+composite if it contains any selected page. Creating a PNG only saves it locally;
+attaching it to chat is a separate action.
 
 ## Configuration
 
@@ -283,6 +308,9 @@ npm audit --audit-level=moderate
 `npm test` compiles the extension and tests editor behavior with a VS Code adapter.
 CodeQL analyzes TypeScript/JavaScript and GitHub Actions on pull requests, pushes
 to `main`, and a weekly schedule.
+
+For isolated VS Code testing, real rendering checks, and testing the packaged
+extension before release, follow [Development and Testing](DEVELOPMENT.md).
 
 ## Issues & Feature Requests
 

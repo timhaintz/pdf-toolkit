@@ -1,5 +1,23 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { CompositeOptions, planCompositeImages } from './compositeLayout';
+
+interface CompositeGroup { width: number; height: number; pages: number[] }
+interface CompositeRequest {
+    id: string;
+    panel: vscode.WebviewPanel;
+    options: CompositeOptions;
+    pages: number[];
+    name: string;
+    outputDir: string;
+    groups: CompositeGroup[];
+    indices: number[];
+    saved: string[];
+    timer: ReturnType<typeof setTimeout>;
+    resolve: (files: string[]) => void;
+    reject: (error: Error) => void;
+    processing: boolean;
+}
 
 /**
  * Represents an opened PDF document
@@ -34,6 +52,8 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
     private _panels: Map<vscode.WebviewPanel, { document: PdfDocument; zoom: number; totalPages: number; currentPage: number }> = new Map();
     private _activePanel: vscode.WebviewPanel | undefined;
     private _outputChannel: vscode.OutputChannel | undefined;
+    private _composites = new Map<string, CompositeRequest>();
+    private _compositeDirectories = new Set<string>();
 
     constructor(public readonly context: vscode.ExtensionContext) {}
 
@@ -158,6 +178,9 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
 
         // Clean up when panel is closed
         webviewPanel.onDidDispose(() => {
+            for (const request of this._composites.values()) {
+                if (request.panel === webviewPanel) this.failComposite(request, new Error('The PDF was closed during export.'));
+            }
             this._panels.delete(webviewPanel);
             if (this._activePanel === webviewPanel) {
                 this._activePanel = undefined;
@@ -223,6 +246,26 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                     case 'extractedImages':
                         await this.saveExtractedImages(panelState.document, webviewPanel, message.images, message.totalFound);
                         break;
+                    case 'compositePlan':
+                    case 'compositeImage':
+                    case 'compositeError': {
+                        const request = this._composites.get(message.requestId);
+                        if (!request || request.panel !== webviewPanel) break;
+                        try {
+                            if (message.type === 'compositeError') throw new Error(message.message);
+                            if (request.processing) throw new Error('Unexpected overlapping composite results.');
+                            request.processing = true;
+                            this.refreshCompositeTimeout(request);
+                            if (message.type === 'compositePlan') await this.prepareCompositeFiles(request, message.groups);
+                            else await this.saveCompositeImage(request, message.index, message.data);
+                        } catch (error) {
+                            this.failComposite(request, error);
+                        } finally {
+                            request.processing = false;
+                            if (!this._composites.has(request.id)) this._compositeDirectories.delete(request.outputDir);
+                        }
+                        break;
+                    }
                     case 'screenshotCurrent':
                         this.extractPages('current', undefined, webviewPanel);
                         break;
@@ -240,6 +283,9 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                         break;
                     case 'openCustomMenu':
                         vscode.commands.executeCommand('pdfToolkit.openCustomWizard', message.totalPages, message.currentPage);
+                        break;
+                    case 'openCompositeMenu':
+                        vscode.commands.executeCommand('pdfToolkit.extractComposite', undefined, webviewPanel);
                         break;
                     case 'browseExtracted':
                         vscode.commands.executeCommand('pdfToolkit.browseExtracted');
@@ -355,6 +401,171 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             quality: quality,
             format: format
         });
+    }
+
+    /** Capture the source before prompts, and wait for PDF.js to report its pages. */
+    public async getCompositeSource(panel = this._activePanel): Promise<{ panel: vscode.WebviewPanel; totalPages: number; currentPage: number }> {
+        const deadline = Date.now() + 15000;
+        while (panel && this._panels.has(panel)) {
+            const state = this._panels.get(panel)!;
+            if (state.totalPages > 0) return { panel, totalPages: state.totalPages, currentPage: state.currentPage };
+            if (Date.now() >= deadline) throw new Error('The PDF has not finished loading. Try again once its pages appear.');
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        throw new Error('No PDF is currently open.');
+    }
+
+    public validateCompositePages(range: string, totalPages: number): string | undefined {
+        if (range.trim().toLowerCase() === 'all') return;
+        if (!range.trim()) return 'Enter page numbers/ranges, or all.';
+        for (const part of range.split(',')) {
+            if (!/^\s*\d+\s*(?:-\s*\d+\s*)?$/.test(part)) return 'Use page numbers/ranges such as 1,3,5-8.';
+            const [start, end = start] = part.split('-').map(Number);
+            if (start < 1 || end < start || end > totalPages) return `Select pages between 1 and ${totalPages}, with ranges in increasing order.`;
+        }
+    }
+
+    /** Results are acknowledged one at a time, so a long export never holds every PNG in memory. */
+    public async extractComposite(range: string, options: CompositeOptions, panel = this._activePanel): Promise<string[]> {
+        // The same planner validates options in the host and the webview.
+        planCompositeImages([{ page: 1, width: 1, height: 1 }], options);
+        const source = await this.getCompositeSource(panel);
+        const validation = this.validateCompositePages(range, source.totalPages);
+        if (validation) throw new Error(validation);
+        const pages = range.trim().toLowerCase() === 'all'
+            ? Array.from({ length: source.totalPages }, (_, i) => i + 1)
+            : this.parsePageRange(range, source.totalPages);
+        const document = this._panels.get(source.panel)!.document;
+        const name = `${path.basename(document.uri.fsPath, path.extname(document.uri.fsPath))}-composites`;
+        const outputDir = path.join(this.getScreenshotsDir(document), name);
+        if (this._compositeDirectories.has(outputDir) || Array.from(this._composites.values()).some(r => r.panel === source.panel)) {
+            throw new Error('A composite export for this PDF is already running. Wait for it to finish.');
+        }
+        this._compositeDirectories.add(outputDir);
+        return new Promise<string[]>((resolve, reject) => {
+            const id = this.getNonce();
+            const request: CompositeRequest = {
+                id, panel: source.panel, options: { ...options }, pages, name, outputDir,
+                groups: [], indices: [], saved: [], resolve, reject, processing: false,
+                timer: setTimeout(() => {}, 0)
+            };
+            this._composites.set(id, request);
+            this.refreshCompositeTimeout(request);
+            void this.sendComposite(request, { type: 'prepareComposite', requestId: id, pages, options: request.options })
+                .catch(error => this.failComposite(request, error));
+        });
+    }
+
+    private refreshCompositeTimeout(request: CompositeRequest): void {
+        clearTimeout(request.timer);
+        request.timer = setTimeout(() => this.failComposite(request, new Error('Composite export timed out. Try fewer pages or a lower resolution.')), 120000);
+    }
+
+    private releaseComposite(request: CompositeRequest): void {
+        clearTimeout(request.timer);
+        this._composites.delete(request.id);
+        if (!request.processing) this._compositeDirectories.delete(request.outputDir);
+        // VS Code's webview getter throws once its panel is disposed.
+        try {
+            void request.panel.webview.postMessage({ type: 'compositeCancel', requestId: request.id }).then(undefined, () => {});
+        } catch { /* Disposal already cancelled the webview. Always settle the caller. */ }
+    }
+
+    private failComposite(request: CompositeRequest, error: unknown): void {
+        if (!this._composites.has(request.id)) return;
+        this.releaseComposite(request);
+        const detail = error instanceof Error ? error.message : String(error);
+        const partial = request.saved.length ? ` ${request.saved.length} image(s) were already saved to ${request.outputDir}.` : '';
+        request.reject(new Error(detail + partial));
+    }
+
+    private async sendComposite(request: CompositeRequest, message: object): Promise<void> {
+        if (!this._composites.has(request.id)) return;
+        if (!await request.panel.webview.postMessage(message)) throw new Error('The PDF viewer could not receive the export request. Reopen the PDF and try again.');
+    }
+
+    private compositeFileName(request: CompositeRequest, group: CompositeGroup): string {
+        const pages = group.pages.map(page => String(page).padStart(3, '0')).join('-');
+        const labels = request.options.labels ? '_labels' : '';
+        const padding = request.options.padding === 12 ? '' : `_pad${request.options.padding}`;
+        return `composite_${request.options.layout}_pages_${pages}_${request.options.quality * 72}dpi${labels}${padding}.png`;
+    }
+
+    private async prepareCompositeFiles(request: CompositeRequest, groups: CompositeGroup[]): Promise<void> {
+        if (request.groups.length || !Array.isArray(groups) || !groups.length || groups.length > request.pages.length) throw new Error('Invalid composite layout response.');
+        const reported: number[] = [];
+        for (const group of groups) {
+            if (!Number.isInteger(group.width) || !Number.isInteger(group.height) || group.width < 1 || group.height < 1 || group.width > 8192 || group.height > 8192 || group.width * group.height > 32000000 || !Array.isArray(group.pages) || !group.pages.length || group.pages.length > request.options.pagesPerImage) {
+                throw new Error('Invalid composite image dimensions or pages.');
+            }
+            reported.push(...group.pages);
+        }
+        if (reported.length !== request.pages.length || reported.some((page, i) => page !== request.pages[i])) throw new Error('The composite response did not include the selected pages.');
+        request.groups = groups;
+        const existing: number[] = [];
+        for (let i = 0; i < groups.length; i++) {
+            try {
+                await vscode.workspace.fs.stat(vscode.Uri.file(path.join(request.outputDir, this.compositeFileName(request, groups[i]))));
+                existing.push(i);
+            } catch { /* A new output file. */ }
+            if (!this._composites.has(request.id)) return;
+        }
+        let selected = groups.map((_, i) => i);
+        if (existing.length) {
+            // A user can keep the prompt open; inactivity timeout applies only to processing.
+            clearTimeout(request.timer);
+            const action = await vscode.window.showWarningMessage(
+                `${existing.length} composite image(s) already exist.`, 'Save New Only', 'Overwrite All', 'Cancel');
+            if (!this._composites.has(request.id)) return;
+            this.refreshCompositeTimeout(request);
+            if (action === 'Save New Only') selected = selected.filter(i => !existing.includes(i));
+            else if (action !== 'Overwrite All') throw new Error('Composite export cancelled.');
+        }
+        if (!this._composites.has(request.id)) return;
+        request.indices = selected;
+        if (!selected.length) {
+            this.releaseComposite(request);
+            request.resolve([]);
+            void vscode.window.showInformationMessage('No new composite images to save.');
+            return;
+        }
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(request.outputDir));
+        await this.sendComposite(request, { type: 'compositeRender', requestId: request.id, index: selected[0] });
+    }
+
+    private async saveCompositeImage(request: CompositeRequest, index: number, data: string): Promise<void> {
+        if (index !== request.indices[0] || typeof data !== 'string' || !data.startsWith('data:image/png;base64,')) throw new Error('Invalid composite PNG response.');
+        const group = request.groups[index];
+        const buffer = Buffer.from(data.slice('data:image/png;base64,'.length), 'base64');
+        const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+        if (buffer.length < 24 || !buffer.subarray(0, 8).equals(signature) || buffer.readUInt32BE(16) !== group.width || buffer.readUInt32BE(20) !== group.height) throw new Error('The composite PNG could not be encoded correctly. Try a lower resolution.');
+        const filePath = path.join(request.outputDir, this.compositeFileName(request, group));
+        await vscode.workspace.fs.writeFile(vscode.Uri.file(filePath), buffer);
+        request.saved.push(filePath);
+        const entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(request.outputDir));
+        const imageCount = entries.filter(([name, type]) => type === vscode.FileType.File && /\.png$/i.test(name)).length;
+        await this.addExtractedPdf(request.name, request.outputDir, imageCount);
+        if (!this._composites.has(request.id)) return;
+        request.indices.shift();
+        this.refreshCompositeTimeout(request);
+        if (request.indices.length) {
+            await this.sendComposite(request, { type: 'compositeRender', requestId: request.id, index: request.indices[0] });
+            return;
+        }
+        this.releaseComposite(request);
+        request.resolve(request.saved);
+        // Resolve after writes/history, without requiring dismissal of this notification.
+        void Promise.resolve(vscode.window.showInformationMessage(
+            `Saved ${request.saved.length} composite image(s) to: ${request.outputDir}`,
+            'Open Folder', 'Add to Copilot Chat', 'Open First Image'
+        )).then(async action => {
+            if (action === 'Open Folder') await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(request.outputDir));
+            else if (action === 'Add to Copilot Chat') {
+                if (request.saved.length > 20) {
+                    void vscode.window.showWarningMessage('Select at most 20 composite images using Attach Extracted Pages to Copilot Chat.');
+                } else await this.addImagesToCopilotChat(request.saved);
+            } else if (action === 'Open First Image') await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(request.saved[0]));
+        }, () => {}).catch(error => { void vscode.window.showErrorMessage(`Could not open the exported images: ${error}`); });
     }
 
     /**
@@ -1126,6 +1337,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                 <button id="screenshot-all" title="Screenshot all pages">📚 All Pages</button>
                 <div class="divider"></div>
                 <button id="screenshot-custom" title="Custom screenshot options">⚙️ Custom...</button>
+                <button id="screenshot-composite" title="Combine selected pages into PNG images">▦ Composite...</button>
                 <div class="divider"></div>
                 <button id="extract-images" title="Extract embedded raster images (photos, bitmaps) at native resolution. For vector charts/diagrams, use Screenshot instead.">🖼️ Extract Images</button>
             </div>
@@ -1167,6 +1379,81 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         let pageCanvases = [];
         let currentRotation = 0; // 0, 90, 180, 270 degrees
         let isDarkMode = false;
+        const planCompositeImages = ${planCompositeImages.toString()};
+        const compositeJobs = new Map();
+
+        async function prepareComposite(message) {
+            try {
+                if (!pdfDoc) throw new Error('The PDF is still loading. Try again once its pages appear.');
+                compositeJobs.set(message.requestId, { plans: [], options: message.options });
+                const dimensions = [];
+                for (const pageNumber of message.pages) {
+                    const page = await pdfDoc.getPage(pageNumber);
+                    if (!compositeJobs.has(message.requestId)) return;
+                    const viewport = page.getViewport({ scale: message.options.quality });
+                    dimensions.push({ page: pageNumber, width: viewport.width, height: viewport.height });
+                }
+                const plans = planCompositeImages(dimensions, message.options);
+                compositeJobs.set(message.requestId, { plans, options: message.options });
+                vscode.postMessage({ type: 'compositePlan', requestId: message.requestId,
+                    groups: plans.map(plan => ({ width: plan.width, height: plan.height, pages: plan.pages.map(page => page.page) })) });
+            } catch (error) {
+                compositeJobs.delete(message.requestId);
+                vscode.postMessage({ type: 'compositeError', requestId: message.requestId, message: error.message });
+            }
+        }
+
+        async function renderComposite(message) {
+            const job = compositeJobs.get(message.requestId);
+            if (!job) return;
+            let canvas;
+            let pageCanvas;
+            try {
+                const plan = job.plans[message.index];
+                canvas = document.createElement('canvas');
+                canvas.width = plan.width;
+                canvas.height = plan.height;
+                const context = canvas.getContext('2d');
+                if (!context) throw new Error('Unable to allocate a composite canvas. Reduce the resolution.');
+                context.fillStyle = 'white';
+                context.fillRect(0, 0, canvas.width, canvas.height);
+                for (const placement of plan.pages) {
+                    if (!compositeJobs.has(message.requestId)) return;
+                    vscode.postMessage({ type: 'status', message: 'Composite ' + (message.index + 1) + ' of ' + job.plans.length + ': rendering page ' + placement.page + '...' });
+                    const page = await pdfDoc.getPage(placement.page);
+                    if (!compositeJobs.has(message.requestId)) return;
+                    const viewport = page.getViewport({ scale: job.options.quality });
+                    pageCanvas = document.createElement('canvas');
+                    pageCanvas.width = placement.width;
+                    pageCanvas.height = placement.height;
+                    const pageContext = pageCanvas.getContext('2d');
+                    if (!pageContext) throw new Error('Unable to allocate a page canvas. Reduce the resolution.');
+                    job.renderTask = page.render({ canvasContext: pageContext, viewport, background: 'white' });
+                    await job.renderTask.promise;
+                    job.renderTask = null;
+                    if (!compositeJobs.has(message.requestId)) return;
+                    context.drawImage(pageCanvas, placement.x, placement.y);
+                    pageCanvas.width = 0;
+                    pageCanvas.height = 0;
+                    if (job.options.labels) {
+                        context.fillStyle = '#333333';
+                        context.font = (14 * job.options.quality) + 'px sans-serif';
+                        context.textAlign = 'center';
+                        context.textBaseline = 'alphabetic';
+                        context.fillText('Page ' + placement.page, placement.labelX, placement.labelY);
+                    }
+                }
+                const data = canvas.toDataURL('image/png');
+                if (!data.startsWith('data:image/png;base64,')) throw new Error('The composite image is too large to encode. Reduce the resolution.');
+                vscode.postMessage({ type: 'compositeImage', requestId: message.requestId, index: message.index, data });
+            } catch (error) {
+                compositeJobs.delete(message.requestId);
+                vscode.postMessage({ type: 'compositeError', requestId: message.requestId, message: error.message });
+            } finally {
+                if (pageCanvas) { pageCanvas.width = 0; pageCanvas.height = 0; }
+                if (canvas) { canvas.width = 0; canvas.height = 0; }
+            }
+        }
 
         // Search state
         let searchMatches = [];
@@ -2060,6 +2347,11 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             vscode.postMessage({ type: 'openCustomMenu', totalPages: totalPages, currentPage: currentPage });
         });
 
+        document.getElementById('screenshot-composite').addEventListener('click', () => {
+            screenshotDropdown.classList.remove('show');
+            vscode.postMessage({ type: 'openCompositeMenu' });
+        });
+
         document.getElementById('extract-images').addEventListener('click', () => {
             screenshotDropdown.classList.remove('show');
             extractEmbeddedImages();
@@ -2079,6 +2371,16 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                     break;
                 case 'extractPages':
                     extractPagesAsImages(message.pages, message.quality, message.format);
+                    break;
+                case 'prepareComposite':
+                    prepareComposite(message);
+                    break;
+                case 'compositeRender':
+                    renderComposite(message);
+                    break;
+                case 'compositeCancel':
+                    compositeJobs.get(message.requestId)?.renderTask?.cancel();
+                    compositeJobs.delete(message.requestId);
                     break;
             }
         });

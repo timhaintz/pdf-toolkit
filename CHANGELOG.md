@@ -5,6 +5,13 @@ All notable changes to PDF Toolkit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Composite PNG screenshots with vertical and 2×2 grid layouts, selected page ranges, configurable grouping, resolution, page labels, and spacing.
+- Automatic splitting within image size limits; separate composite folders and Copilot attachment support.
+- Isolated VS Code development profiles, actual PDF rendering/export integration tests, and a local VSIX packaging and test workflow.
+
 ## [2.1.0] - 2026-02-08
 
 ### Added

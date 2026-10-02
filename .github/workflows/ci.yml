@@ -13,7 +13,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -26,3 +26,7 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm audit --audit-level=moderate
+      - name: Package local VSIX
+        run: npm run package:vsix
+      - name: Test rendering and the packaged extension in VS Code
+        run: xvfb-run -a npm run test:integration -- --packaged

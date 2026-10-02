@@ -1,6 +1,9 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { PdfEditorProvider } from './pdfEditorProvider';
+import { CompositeOptions } from './compositeLayout';
+
+interface CompositeArguments extends Partial<CompositeOptions> { pages: string }
 
 export function activate(context: vscode.ExtensionContext) {
 
@@ -60,7 +63,8 @@ export function activate(context: vscode.ExtensionContext) {
                 [
                     { label: '$(file) Current Page', description: 'Export the currently viewed page', value: 'current' },
                     { label: '$(files) All Pages', description: 'Export all pages as images', value: 'all' },
-                    { label: '$(settings-gear) Custom...', description: 'Choose pages, resolution, and format', value: 'custom' }
+                    { label: '$(settings-gear) Custom...', description: 'Choose pages, resolution, and format', value: 'custom' },
+                    { label: '$(layout) Composite...', description: 'Combine selected pages into PNG images', value: 'composite' }
                 ],
                 {
                     title: '📷 Take Screenshot',
@@ -77,6 +81,8 @@ export function activate(context: vscode.ExtensionContext) {
             } else if (choice.value === 'custom') {
                 // Multi-step wizard for custom extraction
                 await runCustomExtractionWizard(pdfEditorProvider);
+            } else if (choice.value === 'composite') {
+                await runCompositeExtraction(pdfEditorProvider);
             }
         })
     );
@@ -97,6 +103,12 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('pdfToolkit.extractCustom', async () => {
             await runCustomExtractionWizard(pdfEditorProvider);
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('pdfToolkit.extractComposite', async (args?: CompositeArguments, panel?: vscode.WebviewPanel) => {
+            return runCompositeExtraction(pdfEditorProvider, args, panel);
         })
     );
 
@@ -125,6 +137,60 @@ export function activate(context: vscode.ExtensionContext) {
             await attachExtractedToCopilot(pdfEditorProvider, args);
         })
     );
+}
+
+async function runCompositeExtraction(provider: PdfEditorProvider, args?: CompositeArguments, panel?: vscode.WebviewPanel): Promise<string[] | undefined> {
+    try {
+        const source = await provider.getCompositeSource(panel);
+        if (args) {
+            if (typeof args.pages !== 'string') throw new Error('Provide the pages to combine, such as 1-4 or all.');
+            return await provider.extractComposite(args.pages, {
+                layout: args.layout ?? 'grid', quality: args.quality ?? 2,
+                pagesPerImage: args.pagesPerImage ?? 4, labels: args.labels ?? true, padding: args.padding ?? 12
+            }, source.panel);
+        }
+        const pages = await vscode.window.showInputBox({
+            title: 'Composite PNG: Select Pages', value: 'all',
+            prompt: `Select pages from 1 to ${source.totalPages}.`,
+            placeHolder: 'e.g., 1-4,6,8-12 or all',
+            validateInput: value => provider.validateCompositePages(value, source.totalPages)
+        });
+        if (pages === undefined) return;
+        const layout = await vscode.window.showQuickPick([
+            { label: '2 × 2 Grid', description: 'Up to four pages per image, read left to right', value: 'grid' as const },
+            { label: 'Vertical Stack', description: 'Pages arranged from top to bottom', value: 'vertical' as const }
+        ], { title: 'Composite PNG: Layout' });
+        if (!layout) return;
+        const maxPages = layout.value === 'grid' ? 4 : 16;
+        const group = await vscode.window.showInputBox({
+            title: 'Composite PNG: Pages per Image', value: '4',
+            prompt: `Maximum pages per image (1–${maxPages}). Large groups split automatically to keep images within size limits.`,
+            validateInput: value => /^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= maxPages
+                ? undefined : `Enter a whole number from 1 to ${maxPages}.`
+        });
+        if (group === undefined) return;
+        const quality = await vscode.window.showQuickPick([
+            { label: '72 DPI', description: 'Smaller files', value: 1 },
+            { label: '144 DPI', description: 'Recommended for text and diagrams', value: 2 },
+            { label: '216 DPI', description: 'Larger files', value: 3 },
+            { label: '288 DPI', description: 'Largest files; may split into smaller groups', value: 4 }
+        ], { title: 'Composite PNG: Resolution' });
+        if (!quality) return;
+        const appearance = await vscode.window.showQuickPick([
+            { label: 'Page Labels and Spacing', description: 'Page numbers below each page, white background', labels: true, padding: 12 },
+            { label: 'Spacing Only', description: 'White gaps between pages, no labels', labels: false, padding: 12 },
+            { label: 'Pages Only', description: 'No gaps or labels', labels: false, padding: 0 }
+        ], { title: 'Composite PNG: Appearance' });
+        if (!appearance) return;
+        return await provider.extractComposite(pages, {
+            layout: layout.value, pagesPerImage: Number(group), quality: quality.value,
+            labels: appearance.labels, padding: appearance.padding
+        }, source.panel);
+    } catch (error) {
+        void vscode.window.showErrorMessage(`Composite export: ${error instanceof Error ? error.message : error}`);
+        // Programmatic callers, including the integration runner, must see failures.
+        if (args) throw error;
+    }
 }
 
 /**
@@ -161,7 +227,7 @@ async function browseExtractedPdfs(pdfEditorProvider: PdfEditorProvider): Promis
 
     const items: ExtractedPdfItem[] = discovered.map(pdf => ({
         label: `$(file-media) ${pdf.name}`,
-        description: `${pdf.pageCount} page(s)`,
+        description: `${pdf.pageCount} image(s)`,
         detail: `Last modified: ${new Date(pdf.extractedAt).toLocaleDateString()}`,
         pdfData: pdf
     }));
@@ -323,6 +389,10 @@ async function showPdfActions(
                 vscode.window.showWarningMessage('No images found in this folder.');
                 return;
             }
+            if (imageFiles.length > 20) {
+                void vscode.window.showWarningMessage('This folder contains more than 20 images. Use PDF Toolkit: Attach Extracted Pages to Copilot Chat to select fewer pages or files.');
+                return;
+            }
             // Create URIs for all image files
             const imageUris = imageFiles.map(f => vscode.Uri.file(path.join(pdf.path, f)));
             
@@ -454,7 +524,7 @@ async function attachExtractedToCopilot(
         const pdfPick = await vscode.window.showQuickPick(
             discovered.map(pdf => ({
                 label: pdf.name,
-                description: `${pdf.pageCount} page(s)`,
+                description: `${pdf.pageCount} image(s)`,
                 pdf
             })),
             { title: '📎 Attach to Copilot Chat', placeHolder: 'Select an extracted PDF' }
@@ -464,7 +534,7 @@ async function attachExtractedToCopilot(
         // Ask for optional page selection
         const pageRange = await vscode.window.showInputBox({
             title: 'Select Pages (optional)',
-            prompt: `Enter page numbers/ranges to attach, or leave empty for all ${pdfPick.pdf.pageCount} page(s)`,
+            prompt: `Enter page numbers/ranges, or leave empty for all ${pdfPick.pdf.pageCount} image(s). A composite attaches in full if it contains a selected page.`,
             placeHolder: 'e.g., 1,3,5-8 or leave empty for all'
         });
         if (pageRange === undefined) { return; } // cancelled
@@ -523,6 +593,8 @@ async function attachExtractedToCopilot(
         const pageNumbers = parsePageRangeForAttach(args.pages);
         if (pageNumbers.length > 0) {
             imageFiles = imageFiles.filter(f => {
+                const composite = f.match(/^composite_(?:vertical|grid)_pages_([\d-]+)_/);
+                if (composite) return composite[1].split('-').some(page => pageNumbers.includes(Number(page)));
                 const match = f.match(/page_(\d+)/);
                 if (match) {
                     return pageNumbers.includes(parseInt(match[1], 10));

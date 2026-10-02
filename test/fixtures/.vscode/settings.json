@@ -1,0 +1,11 @@
+{
+    "pdfToolkit.extractionQuality": 1,
+    "pdfToolkit.extractionFormat": "png",
+    "pdfToolkit.debug": true,
+    "chat.disableAIFeatures": true,
+    "workbench.startupEditor": "none",
+    "workbench.enableExperiments": false,
+    "extensions.autoCheckUpdates": false,
+    "extensions.autoUpdate": false,
+    "telemetry.telemetryLevel": "off"
+}
