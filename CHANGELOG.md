@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-10-03
+
 ### Added
 
 - **Add Selected Pages to Copilot Chat** in extracted-folder actions, with a checkbox picker for individual page screenshots, embedded images, and composites. Selections over 20 images can be reduced without losing the checked files.
@@ -212,6 +214,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## Release Notes
+
+### 2.3.x - Selected Copilot Attachments
+Choose individual page screenshots, embedded images, or composites to attach to Copilot Chat. Selections above the 20-image limit can be narrowed with the checked files preserved.
 
 ### 2.2.x - Composite Screenshots
 Combine selected PDF pages into grid or vertical PNGs, with configurable grouping, resolution, labels, and spacing. Includes JPEG 2000 rendering and export cancellation fixes.
