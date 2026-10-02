@@ -12,7 +12,12 @@ permissions:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    name: Validate (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -28,5 +33,9 @@ jobs:
       - run: npm audit --audit-level=moderate
       - name: Package local VSIX
         run: npm run package:vsix
-      - name: Test rendering and the packaged extension in VS Code
+      - name: Test rendering and the packaged extension in VS Code (Linux)
+        if: runner.os == 'Linux'
         run: xvfb-run -a npm run test:integration -- --packaged
+      - name: Test rendering and the packaged extension in VS Code (Windows)
+        if: runner.os == 'Windows'
+        run: npm run test:integration -- --packaged

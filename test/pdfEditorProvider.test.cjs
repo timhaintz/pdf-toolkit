@@ -3,7 +3,13 @@ const { readFileSync } = require('node:fs');
 const { createRequire } = require('node:module');
 const path = require('node:path');
 const { test } = require('node:test');
+const { pathToFileURL } = require('node:url');
 const { compileFunction } = require('node:vm');
+
+// Filesystem paths use the host's drive and separators; URI paths keep forward
+// slashes and percent encoding, just as VS Code's webview resource URIs do.
+const fixturePath = (...segments) => path.join(path.parse(process.cwd()).root, ...segments);
+const webviewUrl = filename => `webview:${pathToFileURL(filename).pathname}`;
 
 function createHarness(settings = {}, behavior = {}) {
     const errors = [];
@@ -13,7 +19,7 @@ function createHarness(settings = {}, behavior = {}) {
     const writes = new Map();
     const directories = [];
     const operations = [];
-    const makeUri = fsPath => ({ fsPath, toString: () => `webview:${fsPath}` });
+    const makeUri = fsPath => ({ fsPath, toString: () => webviewUrl(fsPath) });
     const vscode = {
         FileType: { File: 1, Directory: 2 },
         Uri: {
@@ -21,7 +27,7 @@ function createHarness(settings = {}, behavior = {}) {
             joinPath: (base, ...segments) => makeUri(path.join(base.fsPath, ...segments))
         },
         workspace: {
-            workspaceFolders: [{ uri: makeUri('/workspace') }],
+            workspaceFolders: [{ uri: makeUri(fixturePath('workspace')) }],
             getConfiguration: () => ({ get: (key, fallback) => settings[key] ?? fallback }),
             fs: {
                 createDirectory: async uri => { directories.push(uri.fsPath); },
@@ -50,7 +56,7 @@ function createHarness(settings = {}, behavior = {}) {
         }
     };
     const context = {
-        extensionUri: makeUri('/extension'),
+        extensionUri: makeUri(fixturePath('extension')),
         subscriptions: [],
         workspaceState: {
             get: (key, fallback) => state.get(key) ?? fallback,
@@ -93,7 +99,7 @@ function createHarness(settings = {}, behavior = {}) {
             onDidChangeViewState: listener => { onFocus = listener; },
             onDidDispose: listener => { onDispose = listener; }
         };
-        const uri = makeUri(path.join('/documents', filename));
+        const uri = makeUri(fixturePath('documents', filename));
         const document = await provider.openCustomDocument(uri, {}, {});
         assert.equal(document.uri, uri);
         await provider.resolveCustomEditor(document, panel, {});
@@ -197,11 +203,11 @@ test('extracted pages are decoded to the workspace and tracked in history', asyn
         format: 'png',
         pages: [{ page: 2, data: `data:image/png;base64,${Buffer.from('image bytes').toString('base64')}` }]
     });
-    assert.equal(writes.get('/workspace/Screenshots/report/page_002.png').toString(), 'image bytes');
+    assert.equal(writes.get(fixturePath('workspace', 'Screenshots', 'report', 'page_002.png')).toString(), 'image bytes');
     const history = provider.getExtractedPdfs();
     assert.equal(history.length, 1);
     assert.equal(history[0].name, 'report');
-    assert.equal(history[0].path, '/workspace/Screenshots/report');
+    assert.equal(history[0].path, fixturePath('workspace', 'Screenshots', 'report'));
     assert.equal(history[0].pageCount, 1);
     await provider.removeExtractedPdf('report');
     assert.deepEqual(provider.getExtractedPdfs(), []);
@@ -209,18 +215,20 @@ test('extracted pages are decoded to the workspace and tracked in history', asyn
 
 test('webview loads local PDF.js assets and authorizes its script with a CSP nonce', async () => {
     const { openPdf } = createHarness();
-    const { panel } = await openPdf('report.pdf');
+    const { panel } = await openPdf('report #1.pdf');
     const html = panel.webview.html;
     const nonce = html.match(/<script nonce="([A-Za-z0-9]+)" type="module">/)[1];
     assert.equal(nonce.length, 32);
     assert.ok(html.includes(`script-src 'nonce-${nonce}' 'wasm-unsafe-eval' blob:`));
     assert.ok(!html.includes("'unsafe-eval'"), 'JavaScript evaluation remains disabled');
-    assert.ok(html.includes("import * as pdfjsLib from 'webview:/extension/node_modules/pdfjs-dist/build/pdf.min.mjs'"));
-    assert.ok(html.includes("workerSrc = 'webview:/extension/node_modules/pdfjs-dist/build/pdf.worker.min.mjs'"));
-    assert.ok(html.includes("getDocument({ url: pdfUrl, wasmUrl: 'webview:/extension/node_modules/pdfjs-dist/wasm/' })"));
-    assert.ok(html.includes("const pdfUrl = 'webview:/documents/report.pdf'"));
+    assert.ok(html.includes(`import * as pdfjsLib from '${webviewUrl(fixturePath('extension', 'node_modules', 'pdfjs-dist', 'build', 'pdf.min.mjs'))}'`));
+    assert.ok(html.includes(`workerSrc = '${webviewUrl(fixturePath('extension', 'node_modules', 'pdfjs-dist', 'build', 'pdf.worker.min.mjs'))}'`));
+    assert.ok(html.includes(`getDocument({ url: pdfUrl, wasmUrl: '${webviewUrl(fixturePath('extension', 'node_modules', 'pdfjs-dist', 'wasm'))}/' })`));
+    const pdfUrl = webviewUrl(fixturePath('documents', 'report #1.pdf'));
+    assert.ok(html.includes(`const pdfUrl = '${pdfUrl}'`));
+    assert.ok(pdfUrl.endsWith('/documents/report%20%231.pdf'), 'The webview receives an encoded URI, independent of filesystem separators');
     assert.equal(panel.webview.options.enableScripts, true);
-    assert.ok(panel.webview.options.localResourceRoots.some(uri => uri.fsPath === '/extension/node_modules/pdfjs-dist'));
+    assert.ok(panel.webview.options.localResourceRoots.some(uri => uri.fsPath === fixturePath('extension', 'node_modules', 'pdfjs-dist')));
 });
 
 const compositeOptions = overrides => ({
@@ -282,7 +290,7 @@ test('composite export keeps the source captured before the active PDF changes',
     assert.equal(writes.size, 0);
     await compositeImage(first, prepare.requestId, 0, 100, 200);
     assert.deepEqual(await pending, [
-        '/workspace/PDF-Screenshots/first-composites/composite_vertical_pages_002_144dpi_labels.png'
+        fixturePath('workspace', 'PDF-Screenshots', 'first-composites', 'composite_vertical_pages_002_144dpi_labels.png')
     ]);
 });
 
@@ -294,7 +302,7 @@ test('composite output names describe settings, use a sibling folder, and resolv
         beforeStateUpdate: () => history.promise,
         informationResult: new Promise(() => {})
     });
-    const ordinaryPath = '/workspace/Screenshots/report/page_001.png';
+    const ordinaryPath = fixturePath('workspace', 'Screenshots', 'report', 'page_001.png');
     writes.set(ordinaryPath, Buffer.from('ordinary screenshot'));
     const pdf = await openPdf('report.pdf');
     await pdf.receive({ type: 'pageCount', count: 3 });
@@ -307,7 +315,7 @@ test('composite output names describe settings, use a sibling folder, and resolv
     await compositePlan(pdf, prepare.requestId, [{ width: 200, height: 200, pages: [1, 3] }]);
     const receiving = compositeImage(pdf, prepare.requestId, 0, 200, 200);
     await nextTurn();
-    const outputPath = '/workspace/Screenshots/report-composites/composite_grid_pages_001-003_216dpi_labels_pad0.png';
+    const outputPath = fixturePath('workspace', 'Screenshots', 'report-composites', 'composite_grid_pages_001-003_216dpi_labels_pad0.png');
     assert.equal(settled, false);
     assert.equal(writes.has(outputPath), false);
     write.resolve();
@@ -319,10 +327,10 @@ test('composite output names describe settings, use a sibling folder, and resolv
     await receiving;
     assert.deepEqual(await pending, [outputPath]);
     assert.equal(writes.get(ordinaryPath).toString(), 'ordinary screenshot');
-    assert.deepEqual(directories, ['/workspace/Screenshots/report-composites']);
+    assert.deepEqual(directories, [fixturePath('workspace', 'Screenshots', 'report-composites')]);
     const [entry] = provider.getExtractedPdfs();
     assert.equal(entry.name, 'report-composites');
-    assert.equal(entry.path, '/workspace/Screenshots/report-composites');
+    assert.equal(entry.path, fixturePath('workspace', 'Screenshots', 'report-composites'));
     assert.equal(entry.pageCount, 1);
     assert.match(entry.extractedAt, /^\d{4}-\d{2}-\d{2}T/);
     assert.match(information.at(-1), /Saved 1 composite image/);
@@ -347,8 +355,8 @@ test('multiple composite groups render only after the preceding image and histor
     assert.equal(provider.getExtractedPdfs()[0].pageCount, 1);
     await compositeImage(pdf, requestId, 1, 100, 200);
     assert.deepEqual(await pending, [
-        '/workspace/PDF-Screenshots/report-composites/composite_vertical_pages_001-002_144dpi.png',
-        '/workspace/PDF-Screenshots/report-composites/composite_vertical_pages_003_144dpi.png'
+        fixturePath('workspace', 'PDF-Screenshots', 'report-composites', 'composite_vertical_pages_001-002_144dpi.png'),
+        fixturePath('workspace', 'PDF-Screenshots', 'report-composites', 'composite_vertical_pages_003_144dpi.png')
     ]);
     assert.equal(provider.getExtractedPdfs()[0].pageCount, 2);
     assert.equal(pdf.messages.at(-1).type, 'compositeCancel');
@@ -356,8 +364,8 @@ test('multiple composite groups render only after the preceding image and histor
 
 test('composite history counts images already in its output folder', async () => {
     const { provider, openPdf, writes } = createHarness();
-    writes.set('/workspace/PDF-Screenshots/report-composites/earlier.PNG', Buffer.from('old image'));
-    writes.set('/workspace/PDF-Screenshots/report-composites/notes.txt', Buffer.from('notes'));
+    writes.set(fixturePath('workspace', 'PDF-Screenshots', 'report-composites', 'earlier.PNG'), Buffer.from('old image'));
+    writes.set(fixturePath('workspace', 'PDF-Screenshots', 'report-composites', 'notes.txt'), Buffer.from('notes'));
     const pdf = await openPdf('report.pdf');
     await pdf.receive({ type: 'pageCount', count: 1 });
     const pending = provider.extractComposite('all', compositeOptions());
@@ -464,7 +472,7 @@ test('cancelling or dismissing the overwrite prompt quietly preserves files and 
         await t.test(choice ?? 'dismiss', async () => {
             const behavior = { warningChoice: choice };
             const { provider, openPdf, writes, warnings, errors, information } = createHarness({}, behavior);
-            const filename = '/workspace/PDF-Screenshots/report-composites/composite_vertical_pages_001_144dpi_labels.png';
+            const filename = fixturePath('workspace', 'PDF-Screenshots', 'report-composites', 'composite_vertical_pages_001_144dpi_labels.png');
             writes.set(filename, Buffer.from('existing image'));
             const pdf = await openPdf('report.pdf');
             await pdf.receive({ type: 'pageCount', count: 1 });
@@ -503,7 +511,7 @@ test('a later render failure reports the count and location of images already sa
     const pending = provider.extractComposite('all', compositeOptions());
     const rejected = assert.rejects(pending, error => {
         assert.match(error.message, /Rendering page 3 failed/);
-        assert.match(error.message, /1 image\(s\) were already saved to \/workspace\/PDF-Screenshots\/report-composites/);
+        assert.ok(error.message.includes(`1 image(s) were already saved to ${fixturePath('workspace', 'PDF-Screenshots', 'report-composites')}`));
         return true;
     });
     const { requestId } = await compositePrepare(pdf);

@@ -64,8 +64,11 @@ and runs the same checks against that installed artifact.
 The runner uses the installed macOS VS Code application when available, or the
 official test runner downloads a stable VS Code build. Override the executable
 with `PDF_TOOLKIT_VSCODE_EXECUTABLE` if necessary. On Linux with no display, use
-`xvfb-run -a npm run test:integration -- --packaged`. CI runs these checks on Linux
-in addition to lint, Node tests, and dependency audit.
+`xvfb-run -a npm run test:integration -- --packaged`. CI runs these checks on
+Linux and Windows, in addition to lint, Node tests, packaging, and dependency
+audit. The Windows job downloads and starts real VS Code, installs the local
+VSIX, and verifies rendered image dimensions and colors. It runs on a
+GitHub-hosted machine, so contributors do not need their own Windows computer.
 
 To check a particular supported VS Code release, select it explicitly, for example:
 
@@ -119,9 +122,11 @@ Then use a representative real PDF for visual quality and existing commands:
 The automated suite establishes startup and rendering/export behavior; it does
 not replace checking all toolbar interactions, representative large PDFs, chat
 integration, and your supported operating systems and VS Code versions.
-macOS and Linux rendering have automated coverage. A Windows smoke test remains
-before a release intended for Windows users. Repeat the important checks against
-the final versioned VSIX, including opening real documents and Copilot attachment.
+macOS rendering has local automated coverage; the CI matrix checks Linux and
+Windows source and installed-VSIX rendering. Confirm both CI jobs pass on the
+release commit. Computer-use visual and Copilot checks were performed on macOS.
+Repeat the important checks against the final versioned VSIX, including opening
+real documents and Copilot attachment.
 
 Record the tested commit, VS Code version, OS, automated results, manual checks,
 and remaining limits in the PR. Follow [PUBLISHING.md](PUBLISHING.md) for the final
@@ -201,10 +206,12 @@ The public inputs were [Mozilla's TraceMonkey sample](https://mozilla.github.io/
 hash/dimension evidence remain locally under `.vscode-test/manual-qa/2026-10-02/`;
 `evidence-index.json` lists the evidence and exported-file metadata.
 
-Remaining release checks include Windows and repeating the key UI checks on the
-final versioned VSIX. Copilot's attachment/response check passed with the existing
-profile; it was not repeated inside the corrected temporary profile. The existing
-automated grouping/size-limit tests supplement this record.
+The computer-use run above did not exercise a Windows desktop. Windows automated
+source and installed-VSIX rendering is now part of CI; its run links and results
+are recorded on the PR. Remaining release checks include repeating the key UI
+checks on the final versioned VSIX. Copilot's attachment/response check passed
+with the existing profile; it was not repeated inside the corrected temporary
+profile. The existing automated grouping/size-limit tests supplement this record.
 
 References: [VS Code extension testing](https://code.visualstudio.com/api/working-with-extensions/testing-extension)
 and [publishing extensions](https://code.visualstudio.com/api/working-with-extensions/publishing-extension).
