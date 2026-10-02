@@ -4,6 +4,7 @@ const path = require('node:path');
 const zlib = require('node:zlib');
 const vscode = require('vscode');
 const { createPdf, fixturePageColors } = require('../fixtures/createPdf.cjs');
+const { createJpxPdf } = require('../fixtures/createJpxPdf.cjs');
 
 const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 async function withTimeout(promise, label, timeout = 35000) {
@@ -122,8 +123,10 @@ exports.run = async function run() {
     }
     const sample = vscode.Uri.file(path.join(workspace, 'sample.pdf'));
     const second = vscode.Uri.file(path.join(workspace, 'second.pdf'));
+    const jpx = vscode.Uri.file(path.join(workspace, 'jpx-image.pdf'));
     fs.writeFileSync(sample.fsPath, createPdf());
     fs.writeFileSync(second.fsPath, createPdf('second'));
+    fs.writeFileSync(jpx.fsPath, createJpxPdf());
     const screenshotRoot = path.join(workspace, 'PDF-Screenshots');
     // Test workspaces contain only generated fixtures and their generated outputs.
     fs.rmSync(screenshotRoot, { recursive: true, force: true });
@@ -173,7 +176,16 @@ exports.run = async function run() {
     const refocused = await exportComposite({ pages: '2', quality: 1, layout: 'grid', pagesPerImage: 1, labels: false, padding: 6 });
     assert.equal(path.dirname(refocused[0]), path.join(screenshotRoot, 'sample-composites'), 'Refocusing restores the first PDF');
     readRenderedPng(refocused[0], [pageProbe(126, 166, 2)]);
-    console.log(`PASS: ${process.env.PDF_TOOLKIT_TEST_MODE}, VS Code ${vscode.version}; isolated User settings, activation, commands, PDF.js rendering, grid/vertical/grouped composites, ordinary screenshots and multiple PDFs.`);
+    await openPdf(jpx);
+    const jpxOutput = await exportComposite({ pages: 'all', quality: 1, layout: 'grid', pagesPerImage: 1, labels: false, padding: 0 });
+    const jpxPng = readRenderedPng(jpxOutput[0], [pageProbe(120, 80, 1), pageProbe(120, 240, 3)]);
+    assert.deepEqual({ width: jpxPng.width, height: jpxPng.height }, { width: 240, height: 320 },
+        'JPEG 2000 image renders through the bundled WebAssembly decoder');
+    await vscode.commands.executeCommand('pdfToolkit.extractCurrentPage');
+    const jpxScreenshot = path.join(screenshotRoot, 'jpx-image', 'page_001.png');
+    await waitForFile(jpxScreenshot);
+    readRenderedPng(jpxScreenshot, [pageProbe(180, 120, 1), pageProbe(180, 360, 3)]);
+    console.log(`PASS: ${process.env.PDF_TOOLKIT_TEST_MODE}, VS Code ${vscode.version}; isolated User settings, activation, commands, PDF.js rendering including JPEG 2000, grid/vertical/grouped composites, ordinary screenshots and multiple PDFs.`);
     console.log(`Rendered grid: ${gridPng.width} x ${gridPng.height}; vertical: ${verticalPng.width} x ${verticalPng.height}. Outputs: ${screenshotRoot}`);
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
 };

@@ -204,6 +204,9 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         const pdfWorkerUri = webviewPanel.webview.asWebviewUri(
             vscode.Uri.joinPath(this.context.extensionUri, 'node_modules', 'pdfjs-dist', 'build', 'pdf.worker.min.mjs')
         );
+        const pdfWasmUri = webviewPanel.webview.asWebviewUri(
+            vscode.Uri.joinPath(this.context.extensionUri, 'node_modules', 'pdfjs-dist', 'wasm')
+        );
 
         // Serve the PDF file directly to the webview via URI — no base64 copy needed
         const pdfUri = webviewPanel.webview.asWebviewUri(document.uri);
@@ -217,6 +220,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             webviewPanel.webview,
             pdfJsUri,
             pdfWorkerUri,
+            pdfWasmUri,
             pdfUri,
             iconUri,
             this.debugEnabled
@@ -519,7 +523,11 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             if (!this._composites.has(request.id)) return;
             this.refreshCompositeTimeout(request);
             if (action === 'Save New Only') selected = selected.filter(i => !existing.includes(i));
-            else if (action !== 'Overwrite All') throw new Error('Composite export cancelled.');
+            else if (action !== 'Overwrite All') {
+                this.releaseComposite(request);
+                request.resolve([]);
+                return;
+            }
         }
         if (!this._composites.has(request.id)) return;
         request.indices = selected;
@@ -828,6 +836,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         webview: vscode.Webview,
         pdfJsUri: vscode.Uri,
         pdfWorkerUri: vscode.Uri,
+        pdfWasmUri: vscode.Uri,
         pdfUri: vscode.Uri,
         iconUri: vscode.Uri,
         debugEnabled: boolean = false
@@ -839,7 +848,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}' blob:; style-src 'unsafe-inline'; img-src ${webview.cspSource} data: blob:; connect-src ${webview.cspSource}; worker-src blob:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}' 'wasm-unsafe-eval' blob:; style-src 'unsafe-inline'; img-src ${webview.cspSource} data: blob:; connect-src ${webview.cspSource}; worker-src blob:;">
     <title>PDF Viewer</title>
     <style>
         * {
@@ -1468,7 +1477,8 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         async function loadPdf() {
             try {
                 // Load the PDF directly from webview URI
-                const loadingTask = pdfjsLib.getDocument(pdfUrl);
+                // PDF.js 5 uses bundled WebAssembly decoders for JPEG 2000 images.
+                const loadingTask = pdfjsLib.getDocument({ url: pdfUrl, wasmUrl: '${pdfWasmUri}/' });
                 pdfDoc = await loadingTask.promise;
                 totalPages = pdfDoc.numPages;
                 

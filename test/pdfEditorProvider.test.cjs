@@ -213,9 +213,11 @@ test('webview loads local PDF.js assets and authorizes its script with a CSP non
     const html = panel.webview.html;
     const nonce = html.match(/<script nonce="([A-Za-z0-9]+)" type="module">/)[1];
     assert.equal(nonce.length, 32);
-    assert.ok(html.includes(`script-src 'nonce-${nonce}' blob:`));
+    assert.ok(html.includes(`script-src 'nonce-${nonce}' 'wasm-unsafe-eval' blob:`));
+    assert.ok(!html.includes("'unsafe-eval'"), 'JavaScript evaluation remains disabled');
     assert.ok(html.includes("import * as pdfjsLib from 'webview:/extension/node_modules/pdfjs-dist/build/pdf.min.mjs'"));
     assert.ok(html.includes("workerSrc = 'webview:/extension/node_modules/pdfjs-dist/build/pdf.worker.min.mjs'"));
+    assert.ok(html.includes("getDocument({ url: pdfUrl, wasmUrl: 'webview:/extension/node_modules/pdfjs-dist/wasm/' })"));
     assert.ok(html.includes("const pdfUrl = 'webview:/documents/report.pdf'"));
     assert.equal(panel.webview.options.enableScripts, true);
     assert.ok(panel.webview.options.localResourceRoots.some(uri => uri.fsPath === '/extension/node_modules/pdfjs-dist'));
@@ -457,24 +459,41 @@ test('closing a PDF rejects its pending composite export and ignores stale resul
     assert.equal(pdf.messages.filter(message => message.type === 'compositeRender').length, 1);
 });
 
-test('cancelling the overwrite prompt preserves the existing composite file', async () => {
-    const { provider, openPdf, writes, warnings } = createHarness({}, { warningChoice: 'Cancel' });
-    const filename = '/workspace/PDF-Screenshots/report-composites/composite_vertical_pages_001_144dpi_labels.png';
-    writes.set(filename, Buffer.from('existing image'));
-    const pdf = await openPdf('report.pdf');
-    await pdf.receive({ type: 'pageCount', count: 1 });
-    const pending = provider.extractComposite('all', compositeOptions());
-    const rejected = assert.rejects(pending, /Composite export cancelled/);
-    const { requestId } = await compositePrepare(pdf);
-    await compositePlan(pdf, requestId, [{ width: 100, height: 200, pages: [1] }]);
-    await rejected;
-    assert.equal(writes.get(filename).toString(), 'existing image');
-    assert.deepEqual(warnings, [{
-        message: '1 composite image(s) already exist.',
-        choices: ['Save New Only', 'Overwrite All', 'Cancel']
-    }]);
-    assert.equal(pdf.messages.some(message => message.type === 'compositeRender'), false);
-    assert.deepEqual(provider.getExtractedPdfs(), []);
+test('cancelling or dismissing the overwrite prompt quietly preserves files and allows retry', async t => {
+    for (const choice of ['Cancel', undefined]) {
+        await t.test(choice ?? 'dismiss', async () => {
+            const behavior = { warningChoice: choice };
+            const { provider, openPdf, writes, warnings, errors, information } = createHarness({}, behavior);
+            const filename = '/workspace/PDF-Screenshots/report-composites/composite_vertical_pages_001_144dpi_labels.png';
+            writes.set(filename, Buffer.from('existing image'));
+            const pdf = await openPdf('report.pdf');
+            await pdf.receive({ type: 'pageCount', count: 1 });
+            const pending = provider.extractComposite('all', compositeOptions());
+            const { requestId } = await compositePrepare(pdf);
+            await compositePlan(pdf, requestId, [{ width: 100, height: 200, pages: [1] }]);
+            assert.deepEqual(await pending, []);
+            await compositeImage(pdf, requestId, 0, 100, 200);
+            assert.equal(writes.get(filename).toString(), 'existing image');
+            assert.deepEqual(warnings, [{
+                message: '1 composite image(s) already exist.',
+                choices: ['Save New Only', 'Overwrite All', 'Cancel']
+            }]);
+            assert.equal(pdf.messages.some(message => message.type === 'compositeRender'), false);
+            assert.equal(pdf.messages.at(-1).type, 'compositeCancel');
+            assert.deepEqual(provider.getExtractedPdfs(), []);
+            assert.deepEqual(errors, []);
+            assert.deepEqual(information, []);
+
+            behavior.warningChoice = 'Overwrite All';
+            const retry = provider.extractComposite('all', compositeOptions());
+            const preparedRetry = await compositePrepare(pdf);
+            assert.notEqual(preparedRetry.requestId, requestId);
+            await compositePlan(pdf, preparedRetry.requestId, [{ width: 100, height: 200, pages: [1] }]);
+            await compositeImage(pdf, preparedRetry.requestId, 0, 100, 200);
+            assert.deepEqual(await retry, [filename]);
+            assert.equal(writes.get(filename).readUInt32BE(16), 100);
+        });
+    }
 });
 
 test('a later render failure reports the count and location of images already saved', async () => {
