@@ -119,6 +119,28 @@ Then use a representative real PDF for visual quality and existing commands:
   Verify attachment using sample images. Automated tests do not send documents
   to Copilot or validate the chat service.
 
+Use that disposable Copilot workspace for the selected-image attachment checks
+below. Open **📁 Extracted**, select the saved-image folder, and choose
+**Add Selected Pages to Copilot Chat**. Confirm which image attachments appear in
+chat; sending a prompt is only necessary when checking image readability. Start
+a fresh chat for each case so attachment counts remain unambiguous.
+
+| Check | What to select | Expected result |
+| --- | --- | --- |
+| Individual selection | Export all five pages from `sample.pdf`, then check only the page 2 and page 4 files | No files start checked. Exactly two images attach, showing green and purple; the other pages are absent. |
+| Cancellation and empty selection | Open the image picker and press Escape; reopen and confirm with nothing checked | Both finish quietly without attaching images or opening chat. |
+| File types and descriptions | Use a folder with PNG/JPEG page screenshots, embedded images, and composites | Filenames and descriptions distinguish the files and identify their format and page information. Only checked files attach. |
+| 20-image boundary | Create 21 distinct valid image-file copies in an ignored test extraction folder; check 20 | Exactly 20 images attach successfully. |
+| Selection above the limit | In the same folder, check all 21 files; after the warning, uncheck one and confirm | The picker reopens with the original checks preserved. No images attach before correction; exactly 20 attach after correction. |
+| All-images limit recovery | Choose **Add All Images to Copilot Chat** with 21 files, then **Select Images** in the warning | The selected-image picker opens, and checking a smaller subset attaches only that subset. |
+| Composite attachment | Export the five-page sample in 2×2 Grid groups of 4, then check only the pages 1–4 composite file | One attachment contains all four pages. The page 5 composite is absent; selecting a composite never crops individual PDF pages. |
+
+The composite grouping controls allow 1–4 pages per grid image and 1–16 per
+vertical image. A ten-page selection with grid groups of 4 normally produces
+4 + 4 + 2 pages across three files. A vertical group of 10 can produce one tall
+image, subject to the existing dimension/pixel limits. Check automatic splitting
+independently of total pages selected.
+
 The automated suite establishes startup and rendering/export behavior; it does
 not replace checking all toolbar interactions, representative large PDFs, chat
 integration, and your supported operating systems and VS Code versions.
@@ -233,3 +255,33 @@ The GitHub workflows validate the extension; they do not publish it.
 
 References: [VS Code extension testing](https://code.visualstudio.com/api/working-with-extensions/testing-extension)
 and [publishing extensions](https://code.visualstudio.com/api/working-with-extensions/publishing-extension).
+
+### Issue #3 attachment QA: 3 October 2026
+
+Tested the unreleased selected-image attachment flow through the source extension
+and visible VS Code UI on macOS, VS Code 1.140.0. A disposable workspace was used
+with the existing VS Code profile and Copilot authentication.
+
+| Check | Observed result |
+| --- | --- |
+| Large extraction folder | Passed: the synthetic folder listed all 49 PNG files, with none initially checked. |
+| Cancellation and empty selection | Passed: Escape and confirming an empty selection produced no attachments. |
+| Individual selection | Passed: checking page 2 and page 4 produced exactly two direct image attachments in the chat composer. |
+| More than 20 files | Passed: checking all 21 files in a separate synthetic folder was blocked before attachment. The picker immediately reopened with all 21 checks preserved. |
+| Correcting the selection | Passed: unchecking page 1 and confirming attached exactly 20 images, corresponding to pages 2–21. |
+| All-images limit recovery | Passed: **Add All Images to Copilot Chat** reported the 49-file selection and 20-file limit, offering **Select Images**. That action opened all 49 files unchecked; choosing pages 2 and 4 attached exactly those two images. |
+| JPEG discovery and filtering | Passed: `page_002.JPEG` and `page_004.JPEG` appeared as exactly two selectable JPEG files. `notes.txt` and the `skip.png` directory were excluded. Selecting both produced exactly two JPEG chat attachments. |
+| Composite attachment | Passed: the pages 1–4 composite description listed every included page and explained that the complete composite counts as one image. Selecting it produced exactly one composite PNG chat attachment. |
+
+Lint and all 64 Node tests passed, including 18 attachment checks. Isolated native
+integration passed on macOS, VS Code 1.140.0, both from source and from a custom
+installed VSIX. These checks cover activation and registered commands, PDF.js
+and JPEG 2000 rendering, grid/vertical/grouped composites, ordinary screenshots,
+and multiple PDFs.
+
+The manual run verified selection and chat attachments on macOS; it did not
+exercise a Windows desktop or ask a model to analyse the images. A short `Add All`
+text was accidentally submitted during a focus change and cancelled; no workspace
+edits resulted. The existing profile/authentication caveat applies to this run.
+Test attachments were cleared and the Extension Development Host was closed
+after the checks.

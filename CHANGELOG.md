@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Add Selected Pages to Copilot Chat** in extracted-folder actions, with a checkbox picker for individual page screenshots, embedded images, and composites. Selections over 20 images can be reduced without losing the checked files.
+
+### Changed
+
+- Clarified composite screenshot grouping in the documentation: up to 4 pages per grid image or 16 per vertical image, with longer selections grouped across outputs and further splitting within image size limits.
+
 ## [2.2.0] - 2026-10-02
 
 ### Added

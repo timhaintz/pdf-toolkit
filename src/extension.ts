@@ -313,8 +313,8 @@ async function scanScreenshotsFolder(screenshotsDir: string): Promise<{ name: st
                 try {
                     const folderUri = vscode.Uri.file(folderPath);
                     const files = await vscode.workspace.fs.readDirectory(folderUri);
-                    const imageFiles = files.filter(([fileName]) => 
-                        fileName.endsWith('.png') || fileName.endsWith('.jpg') || fileName.endsWith('.jpeg')
+                    const imageFiles = files.filter(([fileName, fileType]) =>
+                        fileType === vscode.FileType.File && /\.(png|jpe?g)$/i.test(fileName)
                     );
                     
                     if (imageFiles.length > 0) {
@@ -359,7 +359,7 @@ async function showPdfActions(
         imageFiles = files
             .filter(([name, type]) => type === vscode.FileType.File && /\.(png|jpe?g)$/i.test(name))
             .map(([name]) => name)
-            .sort();
+            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     } catch {
         // Folder might not exist anymore
     }
@@ -369,7 +369,8 @@ async function showPdfActions(
     }
 
     const actions: PdfActionItem[] = [
-        { label: '$(comment-discussion) Add to Copilot Chat', description: `Attach all ${imageFiles.length} images to GitHub Copilot`, action: 'attachToCopilot' },
+        { label: '$(comment-discussion) Add Selected Pages to Copilot Chat', description: 'Choose up to 20 images to attach', action: 'attachSelectedToCopilot' },
+        { label: '$(comment-discussion) Add All Images to Copilot Chat', description: `Attach all ${imageFiles.length} images to GitHub Copilot`, action: 'attachToCopilot' },
         { label: '$(folder-opened) Open Folder', description: 'Reveal folder in file explorer', action: 'folder' },
         { label: '$(file-media) View First Image', description: 'Open the first page image', action: 'viewFirst' },
         { label: '', kind: vscode.QuickPickItemKind.Separator },
@@ -384,24 +385,24 @@ async function showPdfActions(
     if (!selected) return;
 
     switch (selected.action) {
+        case 'attachSelectedToCopilot':
+            await selectImagesForCopilot(pdf.path, imageFiles);
+            break;
+
         case 'attachToCopilot':
             if (imageFiles.length === 0) {
                 vscode.window.showWarningMessage('No images found in this folder.');
                 return;
             }
             if (imageFiles.length > 20) {
-                void vscode.window.showWarningMessage('This folder contains more than 20 images. Use PDF Toolkit: Attach Extracted Pages to Copilot Chat to select fewer pages or files.');
+                const action = await vscode.window.showWarningMessage(
+                    `This folder contains ${imageFiles.length} images, which exceeds Copilot Chat's 20-image limit. Select fewer images to attach.`,
+                    'Select Images'
+                );
+                if (action === 'Select Images') await selectImagesForCopilot(pdf.path, imageFiles);
                 return;
             }
-            // Create URIs for all image files
-            const imageUris = imageFiles.map(f => vscode.Uri.file(path.join(pdf.path, f)));
-            
-            // Use VS Code's built-in command to open chat with files attached
-            await vscode.commands.executeCommand('workbench.action.chat.open', {
-                query: '',
-                attachFiles: imageUris
-            });
-            vscode.window.showInformationMessage(`Added ${imageFiles.length} image(s) to Copilot Chat!`);
+            await attachImagesToCopilot(pdf.path, imageFiles);
             break;
 
         case 'folder':
@@ -422,6 +423,81 @@ async function showPdfActions(
             vscode.window.showInformationMessage(`Removed "${pdf.name}" from history.`);
             break;
     }
+}
+
+interface CopilotImageItem extends vscode.QuickPickItem {
+    filename: string;
+}
+
+function copilotImageItem(filename: string, picked: boolean): CopilotImageItem {
+    const format = /\.png$/i.test(filename) ? 'PNG' : 'JPEG';
+    const composite = filename.match(/^composite_(vertical|grid)_pages_([\d-]+)_/i);
+    const page = filename.match(/^page_(\d+)\./i);
+    const embedded = filename.match(/^image_(\d+)_page(\d+)_/i);
+    if (composite) {
+        const pages = composite[2].split('-').map(Number).join(', ');
+        return {
+            label: filename, filename, picked,
+            description: `Pages ${pages} · ${composite[1] === 'grid' ? 'Grid' : 'Vertical'} composite · ${format}`,
+            detail: 'Attaches the entire composite, including every listed page. Counts as one image.'
+        };
+    }
+    return {
+        label: filename, filename, picked,
+        description: page ? `Page ${Number(page[1])} · ${format}`
+            : embedded ? `Page ${Number(embedded[2])} · Embedded image ${Number(embedded[1])} · ${format}`
+                : `${format} image`,
+        detail: 'Attaches this image file.'
+    };
+}
+
+async function selectImagesForCopilot(targetFolder: string, imageFiles: string[]): Promise<void> {
+    if (imageFiles.length === 0) {
+        void vscode.window.showWarningMessage('No images found in this folder.');
+        return;
+    }
+    let selectedFiles = new Set<string>();
+    while (true) {
+        const selected = await vscode.window.showQuickPick(
+            imageFiles.map(filename => copilotImageItem(filename, selectedFiles.has(filename))),
+            {
+                title: '📎 Add Selected Pages to Copilot Chat',
+                placeHolder: 'Select up to 20 images to attach',
+                canPickMany: true,
+                matchOnDescription: true,
+                matchOnDetail: true
+            }
+        );
+        if (!selected || selected.length === 0) return;
+        // Resolve from this folder's actual image list, so only displayed files can attach.
+        const selectedSet = new Set(selected.map(item => item.filename));
+        const files = imageFiles.filter(filename => selectedSet.has(filename));
+        if (files.length <= 20) {
+            await attachImagesToCopilot(targetFolder, files);
+            return;
+        }
+        selectedFiles = new Set(files);
+        void vscode.window.showWarningMessage(
+            `Selection contains ${files.length} images, which exceeds Copilot Chat's 20-image limit. Deselect images to attach no more than 20.`
+        );
+    }
+}
+
+/** Guard every attachment path in the extracted-PDF browser and command. */
+async function attachImagesToCopilot(targetFolder: string, imageFiles: string[], verb: 'Added' | 'Attached' = 'Added'): Promise<void> {
+    if (imageFiles.length === 0) return;
+    if (imageFiles.length > 20) {
+        void vscode.window.showWarningMessage(
+            `Selection contains ${imageFiles.length} images, which exceeds Copilot Chat's 20-image limit. Please narrow your selection.`
+        );
+        return;
+    }
+    const imageUris = imageFiles.map(filename => vscode.Uri.file(path.join(targetFolder, filename)));
+    await vscode.commands.executeCommand('workbench.action.chat.open', {
+        query: '',
+        attachFiles: imageUris
+    });
+    void vscode.window.showInformationMessage(`${verb} ${imageFiles.length} image(s) to Copilot Chat.`);
 }
 
 /**
@@ -609,20 +685,7 @@ async function attachExtractedToCopilot(
         return;
     }
 
-    if (imageFiles.length > 20) {
-        vscode.window.showWarningMessage(
-            `Selection contains ${imageFiles.length} images, which exceeds Copilot Chat's 20-image limit. Please narrow your selection.`
-        );
-        return;
-    }
-
-    const imageUris = imageFiles.map(f => vscode.Uri.file(path.join(targetFolder, f)));
-
-    await vscode.commands.executeCommand('workbench.action.chat.open', {
-        query: '',
-        attachFiles: imageUris
-    });
-    vscode.window.showInformationMessage(`Attached ${imageFiles.length} image(s) to Copilot Chat.`);
+    await attachImagesToCopilot(targetFolder, imageFiles, 'Attached');
 }
 
 /**

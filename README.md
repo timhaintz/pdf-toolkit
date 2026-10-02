@@ -17,6 +17,8 @@ A powerful PDF viewer extension for Visual Studio Code with native rendering and
   - [Commands](#commands)
   - [Custom Screenshot Wizard](#custom-screenshot-wizard)
   - [Page Extraction](#page-extraction)
+  - [Composite Screenshots](#composite-screenshots)
+  - [Attach Selected Images to Copilot Chat](#attach-selected-images-to-copilot-chat)
 - [Configuration](#configuration)
   - [Debug Logging](#debug-logging)
   - [Changing the Screenshots Folder](#changing-the-screenshots-folder)
@@ -34,8 +36,9 @@ A powerful PDF viewer extension for Visual Studio Code with native rendering and
 **The Problem:** VS Code cannot natively display PDF files, and AI assistants like GitHub Copilot cannot read PDF content directly.
 
 **The Solution:** PDF Toolkit provides:
+
 1. **Native PDF Viewing** - View PDFs directly in VS Code without leaving your editor
-2. **AI-Ready Screenshots** - Extract PDF pages as images that can be shared with GitHub Copilot Chat using `#file:` references, enabling AI to "read" and analyze your PDF content
+2. **AI-Ready Screenshots** - Extract PDF pages as images and attach them directly to GitHub Copilot Chat, enabling AI to "read" and analyze your PDF content
 
 ### Use Case: Share PDFs with GitHub Copilot
 
@@ -43,6 +46,8 @@ A powerful PDF viewer extension for Visual Studio Code with native rendering and
 2. Click **📷 Screenshot** → **All Pages** to extract pages as images
 3. Click **Add to Copilot Chat** in the notification
 4. The images are automatically attached to Copilot Chat - the AI can now see and analyse your PDF content!
+
+To share only some of the saved images, use **📁 Extracted → select a folder → Add Selected Pages to Copilot Chat** and check the files you want to attach. PDF Toolkit allows up to 20 image files per attachment action.
 
 This is perfect for:
 - 📚 Research papers and academic articles
@@ -76,7 +81,8 @@ This is perfect for:
 - **Current Page**: Save the currently viewed page as a PNG/JPEG image
 - **All Pages**: Export every page of a PDF as individual images
 - **Custom Wizard**: Multi-step wizard to select specific pages, resolution (72-288 DPI), and format (PNG/JPEG)
-- **Composite PNGs**: Combine selected pages in a vertical stack or 2×2 grid, with optional spacing and page labels. Group longer selections into multiple images automatically.
+- **Composite PNGs**: Combine up to 16 pages per image in a vertical stack, or up to 4 in a 2×2 grid, with optional spacing and page labels. Group longer selections into multiple images automatically; image size limits can split groups further.
+- **Selected Copilot Attachments**: Choose individual saved PNG/JPEG files with checkboxes before attaching them to GitHub Copilot Chat, including page screenshots, embedded images, and composites.
 
 ### Image Extraction
 - **Extract Embedded Images**: Extract embedded raster images (photos, bitmaps, pre-rendered figures) directly from PDFs at their native resolution
@@ -172,6 +178,7 @@ Access via Command Palette (`Ctrl+Shift+P`):
 - `PDF Toolkit: Screenshot Custom...` - Open multi-step wizard for custom extraction
 - `PDF Toolkit: Screenshot Composite...` - Combine selected pages into PNG images
 - `PDF Toolkit: Browse Extracted PDFs` - View and manage previously extracted PDFs
+- `PDF Toolkit: Attach Extracted Pages to Copilot Chat` - Choose an extracted folder and optionally filter its images by page range
 - `PDF Toolkit: Zoom In` - Increase zoom level
 - `PDF Toolkit: Zoom Out` - Decrease zoom level
 - `PDF Toolkit: Reset Zoom` - Reset to 100% zoom
@@ -191,16 +198,27 @@ The **Custom** option in the screenshot menu opens a 3-step wizard:
 ### Page Extraction
 
 When you extract pages, they are saved to a `PDF-Screenshots/<pdf-name>/` folder in your workspace. Extracted embedded images are also saved to the same folder with descriptive filenames. The extension tracks your extractions so you can easily:
+
 - Browse previously extracted PDFs via the **📁 Extracted** button
-- Copy image references for Copilot Chat with one click
+- Attach all saved images or choose individual files for Copilot Chat
 - Manage your extraction history
 
 ### Composite Screenshots
 
 Choose **📷 Screenshot → Composite...**, or run **PDF Toolkit: Screenshot Composite...**.
-Select pages/ranges (such as `1-16`), a 2×2 grid or vertical stack, maximum pages
-per image, resolution, and appearance. For example, a 16-page selection grouped
-four at a time produces four PNGs. The final image can contain fewer pages.
+Select pages/ranges (such as `1-16`), a layout, maximum pages per image, resolution,
+and appearance. The number of pages selected is separate from the maximum number
+combined into each output image:
+
+| Layout | Maximum pages per image | Example with 10 selected pages |
+| --- | --- | --- |
+| 2×2 Grid | Choose 1–4 | With 4 pages/image, normally three PNGs contain 4 + 4 + 2 pages. |
+| Vertical Stack | Choose 1–16 | With 10 pages/image, one tall PNG contains all 10 if it fits the image size limits. |
+
+Grid uses up to two columns; it does not automatically expand into a larger grid
+for longer selections. The final image can contain fewer pages than the chosen
+maximum. For example, a 16-page selection grouped four at a time produces four
+PNGs, subject to the size limits below.
 
 Composites use a white background and are saved separately in
 `PDF-Screenshots/<pdf-name>-composites/`, so browsing and attaching them does not
@@ -212,9 +230,29 @@ choose a lower resolution. Large stitched images may become harder to read when
 an assistant resizes them; use smaller groups or higher resolution as appropriate.
 
 Use **Add to Copilot Chat** after export, or select the composite folder in
-**Attach Extracted Pages to Copilot Chat**. A page filter attaches an entire
-composite if it contains any selected page. Creating a PNG only saves it locally;
-attaching it to chat is a separate action.
+**📁 Extracted** and choose **Add Selected Pages to Copilot Chat** to pick individual
+composite files. The **Attach Extracted Pages to Copilot Chat** command also supports
+page filtering: it attaches an entire composite if it contains any selected page.
+Creating a PNG only saves it locally; attaching it to chat is a separate action.
+
+### Attach Selected Images to Copilot Chat
+
+1. Click **📁 Extracted**, or run **PDF Toolkit: Browse Extracted PDFs** from the Command Palette.
+2. Select the folder containing your saved page screenshots, embedded images, or composites.
+3. Choose **Add Selected Pages to Copilot Chat**.
+4. Check the image files you want to attach, then press **Enter**. The list shows each filename, its page information, and PNG/JPEG format. No files are checked initially.
+
+Only the checked files are attached. Press **Escape** to cancel, or confirm with
+nothing checked to finish without attaching anything. Selecting more than 20
+files displays a warning and reopens the list with your checks preserved, so you
+can reduce the selection. **Add All Images to Copilot Chat** attaches every image
+in the folder and offers **Select Images** when there are more than 20 files.
+The limit applies to the files selected for this attachment action.
+
+A composite is one image file and counts as one attachment, even when it contains
+several PDF pages. Selecting that file attaches the whole image; it does not
+extract individual pages from the composite. Choose individual page screenshots
+when you need to share only one page from an existing composite.
 
 ## Configuration
 
