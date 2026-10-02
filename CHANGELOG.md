@@ -7,10 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-10-02
+
 ### Added
 - Composite PNG screenshots with vertical and 2×2 grid layouts, selected page ranges, configurable grouping, resolution, page labels, and spacing.
 - Automatic splitting within image size limits; separate composite folders and Copilot attachment support.
 - Isolated VS Code development profiles, actual PDF rendering/export integration tests, and a local VSIX packaging and test workflow.
+
+### Fixed
+- JPEG 2000 images now render correctly in the PDF viewer and exported screenshots.
+- Cancelling a duplicate screenshot export preserves existing files and dismisses quietly.
 
 ## [2.1.0] - 2026-02-08
 
@@ -198,6 +204,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## Release Notes
+
+### 2.2.x - Composite Screenshots
+Combine selected PDF pages into grid or vertical PNGs, with configurable grouping, resolution, labels, and spacing. Includes JPEG 2000 rendering and export cancellation fixes.
 
 ### 2.1.x - Production Hardening & Search Fix
 Search highlighting rewritten with PDF.js built-in TextLayer API, zero-copy PDF loading, multi-editor support, branding header, and user-configurable debug logging.

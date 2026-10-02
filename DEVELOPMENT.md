@@ -125,8 +125,10 @@ integration, and your supported operating systems and VS Code versions.
 macOS rendering has local automated coverage; the CI matrix checks Linux and
 Windows source and installed-VSIX rendering. Confirm both CI jobs pass on the
 release commit. Computer-use visual and Copilot checks were performed on macOS.
-Repeat the important checks against the final versioned VSIX, including opening
-real documents and Copilot attachment.
+Test the final versioned VSIX before publishing. When only the version, changelog,
+and release documentation change after functional QA, rerun packaged integration
+and confirm the compiled runtime and PDF.js assets match the manually tested
+package. Repeat the affected manual checks when runtime code or dependencies change.
 
 Record the tested commit, VS Code version, OS, automated results, manual checks,
 and remaining limits in the PR. Follow [PUBLISHING.md](PUBLISHING.md) for the final
@@ -153,7 +155,7 @@ release. Keep the previous package available for recovery.
 5. Save a dated result with observed outcomes and unresolved checks. Keep local
    screenshots, before/after images, and a JSON evidence index in the ignored QA
    directory; commit the testing record, without committing downloaded PDFs or
-   generated exports. Repeat release-critical checks on the final versioned VSIX.
+   generated exports. Verify the final versioned VSIX using the release checks above.
 
 ### Computer-use test record: 2 October 2026
 
@@ -196,7 +198,7 @@ source on 1.140.0 and the minimum supported 1.96.0, and from the rebuilt VSIX on
 1.140.0. These checks include JPEG 2000 composite and ordinary screenshot
 rendering with decoded-color assertions. After the launch/manifest/documentation
 updates, source and installed-package integration were repeated successfully on
-1.140.0. The current tested local package is `artifacts/pdf-toolkit-2.1.0.vsix`
+1.140.0. The pre-release testing package was `artifacts/pdf-toolkit-2.1.0.vsix`
 (11,668,960 bytes), SHA256
 `5543d32e88a213cb739b6656a03b28d123a32a72e83dffeee0aa44e2c31c0ce0`.
 
@@ -208,10 +210,26 @@ hash/dimension evidence remain locally under `.vscode-test/manual-qa/2026-10-02/
 
 The computer-use run above did not exercise a Windows desktop. Windows automated
 source and installed-VSIX rendering is now part of CI; its run links and results
-are recorded on the PR. Remaining release checks include repeating the key UI
-checks on the final versioned VSIX. Copilot's attachment/response check passed
+are recorded on the PR. Copilot's attachment/response check passed
 with the existing profile; it was not repeated inside the corrected temporary
 profile. The existing automated grouping/size-limit tests supplement this record.
+
+### Final 2.2.0 package verification: 2 October 2026
+
+The release package is `artifacts/pdf-toolkit-2.2.0.vsix` (11,669,278 bytes),
+SHA256 `dc5b702c094d79788ed6abce8bf8c2d919e2965dd77e995f0d71d1978f55c2a9`.
+Lint and all 46 Node tests passed during packaging. Source and installed-VSIX
+integration passed again on macOS, VS Code 1.140.0, including activation, real
+PDF.js and JPEG 2000 rendering, grid/vertical/grouped composites, ordinary
+screenshots, and multiple PDFs. The isolated installation's version was verified
+as 2.2.0.
+
+Comparing both VSIX archives confirmed identical file membership, compiled
+runtime, and PDF.js assets. Only the package manifests, changelog, and publishing
+documentation changed from the package used for functional QA. The manual test
+record above therefore remains applicable. Final Windows/Linux CI results and
+the tested release commit are recorded on PR #8 before manual Marketplace upload.
+The GitHub workflows validate the extension; they do not publish it.
 
 References: [VS Code extension testing](https://code.visualstudio.com/api/working-with-extensions/testing-extension)
 and [publishing extensions](https://code.visualstudio.com/api/working-with-extensions/publishing-extension).

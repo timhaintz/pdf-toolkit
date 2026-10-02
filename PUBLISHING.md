@@ -44,7 +44,7 @@ Ensure `package.json` has these key fields:
   "name": "pdf-toolkit",
   "displayName": "PDF Toolkit",
   "publisher": "TimHaintz",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "engines": { "vscode": "^1.96.0" },
   "icon": "images/icon.png",
   "repository": { "type": "git", "url": "https://github.com/timhaintz/pdf-toolkit" },
@@ -110,6 +110,16 @@ temporary VS Code profile and workspace before publishing:
 npm run test:integration -- --packaged
 ```
 
+### Publish the tested package
+
+Upload the exact VSIX that passed testing, without rebuilding it:
+
+```powershell
+npx @vscode/vsce publish --packagePath artifacts/pdf-toolkit-2.2.0.vsix
+```
+
+For later releases, replace `2.2.0` with that release's version.
+
 ## 7. Verify
 
 After publishing, check your extension at:
@@ -127,7 +137,11 @@ It may take a few minutes for the listing to fully propagate.
 4. Press F5 using **Run Extension (temporary profile)** and complete the manual checks in [DEVELOPMENT.md](DEVELOPMENT.md), including Copilot attachment when relevant.
 5. Run `npm run package:vsix`, then `npm run test:integration -- --packaged` to test the source and the actual distributable. These commands do not publish.
 6. Review the PR and passing CI, update the release version and changelog, and rebuild/retest the final package.
-7. Publish only when that release is approved: `npx @vscode/vsce publish` (the version was already updated and tested).
+7. Merge the approved PR after CI passes, then publish the tested artifact with `npx @vscode/vsce publish --packagePath artifacts/pdf-toolkit-<version>.vsix`.
+
+The GitHub Actions workflows run validation and CodeQL on PRs and `main`.
+They do not publish to the VS Code Marketplace. Publishing is a separate,
+authenticated step; merging a PR or pushing to `main` alone does not release it.
 
 Keep the previously released VSIX available. If the new release needs to be
 reverted, restore the previous behavior and publish a higher patch version;
