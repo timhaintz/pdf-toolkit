@@ -2,45 +2,19 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Run Extension (isolated)",
+            "name": "Run Extension (temporary profile)",
             "type": "extensionHost",
             "request": "launch",
             "args": [
                 "${workspaceFolder}/test/fixtures",
                 "--extensionDevelopmentPath=${workspaceFolder}",
-                "--user-data-dir=${workspaceFolder}/.vscode-test/manual/user-data",
-                "--extensions-dir=${workspaceFolder}/.vscode-test/manual/extensions",
+                "--profile-temp",
                 "--disable-extension=github.copilot",
                 "--disable-extension=github.copilot-chat",
                 "--disable-workspace-trust",
                 "--skip-welcome",
                 "--skip-release-notes"
             ],
-            "outFiles": [
-                "${workspaceFolder}/out/**/*.js"
-            ],
-            "preLaunchTask": "${defaultBuildTask}"
-        },
-        {
-            "name": "Extension Integration Tests (isolated)",
-            "type": "extensionHost",
-            "request": "launch",
-            "args": [
-                "${workspaceFolder}/test/fixtures",
-                "--extensionDevelopmentPath=${workspaceFolder}",
-                "--extensionTestsPath=${workspaceFolder}/test/integration/suite.cjs",
-                "--user-data-dir=${workspaceFolder}/.vscode-test/debug-tests/user-data",
-                "--extensions-dir=${workspaceFolder}/.vscode-test/debug-tests/extensions",
-                "--disable-extension=github.copilot",
-                "--disable-extension=github.copilot-chat",
-                "--disable-workspace-trust",
-                "--skip-welcome",
-                "--skip-release-notes"
-            ],
-            "env": {
-                "PDF_TOOLKIT_TEST_EXTENSION_PATH": "${workspaceFolder}",
-                "PDF_TOOLKIT_TEST_MODE": "development"
-            },
             "outFiles": [
                 "${workspaceFolder}/out/**/*.js"
             ],

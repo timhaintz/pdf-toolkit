@@ -4,7 +4,6 @@
         {
             "type": "npm",
             "script": "watch",
-            "dependsOn": "Prepare isolated VS Code profiles",
             "problemMatcher": "$tsc-watch",
             "isBackground": true,
             "presentation": {
@@ -13,15 +12,6 @@
             "group": {
                 "kind": "build",
                 "isDefault": true
-            }
-        },
-        {
-            "type": "npm",
-            "script": "prepare:test-profiles",
-            "label": "Prepare isolated VS Code profiles",
-            "problemMatcher": [],
-            "presentation": {
-                "reveal": "silent"
             }
         },
         {

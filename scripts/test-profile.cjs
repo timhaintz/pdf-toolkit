@@ -35,11 +35,3 @@ function prepareTestProfile(userData) {
 }
 
 module.exports = { prepareTestProfile };
-
-if (require.main === module) {
-    const root = path.resolve(__dirname, '..');
-    for (const profile of ['manual', 'debug-tests']) {
-        const filename = prepareTestProfile(path.join(root, '.vscode-test', profile, 'user-data'));
-        console.log(`Prepared isolated VS Code settings: ${filename}`);
-    }
-}

@@ -154,7 +154,6 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "prepare:test-profiles": "node scripts/test-profile.cjs",
     "lint": "eslint src --ext ts",
     "test": "npm run compile && node --test test/*.test.cjs",
     "test:integration": "npm run compile && node scripts/test-integration.cjs",

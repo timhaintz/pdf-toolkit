@@ -124,7 +124,7 @@ It may take a few minutes for the listing to fully propagate.
 1. Create a feature branch from current `main` and make the change.
 2. Run `npm run lint` and `npm test` (compilation alone does not run tests).
 3. Run `npm run test:integration` to verify startup, real PDF rendering, and exports in an isolated VS Code instance.
-4. Press F5 using **Run Extension (isolated)** and complete the manual checks in [DEVELOPMENT.md](DEVELOPMENT.md), including Copilot attachment when relevant.
+4. Press F5 using **Run Extension (temporary profile)** and complete the manual checks in [DEVELOPMENT.md](DEVELOPMENT.md), including Copilot attachment when relevant.
 5. Run `npm run package:vsix`, then `npm run test:integration -- --packaged` to test the source and the actual distributable. These commands do not publish.
 6. Review the PR and passing CI, update the release version and changelog, and rebuild/retest the final package.
 7. Publish only when that release is approved: `npx @vscode/vsce publish` (the version was already updated and tested).
