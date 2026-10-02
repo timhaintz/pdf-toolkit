@@ -28,9 +28,11 @@ async function resolveExecutable() {
         const legacy = '/Applications/Visual Studio Code.app/Contents/MacOS/Electron';
         if (fs.existsSync(legacy)) return legacy;
     }
+    const cachePath = path.join(root, '.vscode-test', 'downloads');
+    fs.mkdirSync(cachePath, { recursive: true });
     return downloadAndUnzipVSCode({
         version: process.env.PDF_TOOLKIT_VSCODE_VERSION || 'stable',
-        cachePath: path.join(root, '.vscode-test', 'downloads')
+        cachePath
     });
 }
 
