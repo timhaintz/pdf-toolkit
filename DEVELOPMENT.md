@@ -36,6 +36,12 @@ repository's `test/fixtures/` workspace: screenshots are ignored under
 are tracked source files. The integration runner uses separate disposable
 workspaces under `.vscode-test/runs/`. Use sample documents for testing.
 
+F5 also prepares the isolated profile's User settings. Application-wide settings
+for extension updates, experiments, and telemetry belong there; the fixture's
+Workspace settings contain PDF preferences and valid workspace options. Existing
+preferences in the isolated User settings are preserved. Your everyday VS Code
+User settings are outside these test directories.
+
 ## Automated rendering and package tests
 
 ```bash
@@ -71,6 +77,19 @@ Packaging and installing in the temporary test profile do not publish a release.
 
 Check the exact package intended for release, using representative documents:
 
+The four-page grid with labels has been checked interactively. These short cases
+exercise the remaining wizard options in the same Extension Development Host:
+
+| Check | What to select | Expected result |
+| --- | --- | --- |
+| Vertical layout | `sample.pdf`, pages `2,4`, Vertical Stack, 4 pages/image, 144 DPI, Pages Only | One PNG with page 2 above page 4, without added labels or gaps. |
+| Grouping and final page | `sample.pdf`, `all`, 2×2 Grid, 4 pages/image, 144 DPI, Page Labels and Spacing | Two PNGs: pages 1–4 together, then page 5 alone. Every page appears once. |
+| Invalid input and cancelling | Enter page `6` in the five-page sample, then press Escape | Validation rejects the page. Cancelling creates no output. |
+| Existing outputs | Repeat an existing export and try Cancel, Save New Only, and Overwrite All | Cancel/skip preserve existing images; overwrite replaces them successfully. |
+| Two documents | Open `sample.pdf` and `second.pdf`; export page 1 from each | Separate output folders; sample page 1 is blue, second page 1 is amber. |
+
+Then use a representative real PDF for visual quality and existing commands:
+
 - Open multi-page PDFs with text, photos, and vector diagrams. Confirm rendering,
   text selection, search, outline navigation, page navigation, zoom, rotation,
   and dark mode.
@@ -93,6 +112,9 @@ Check the exact package intended for release, using representative documents:
 The automated suite establishes startup and rendering/export behavior; it does
 not replace checking all toolbar interactions, representative large PDFs, chat
 integration, and your supported operating systems and VS Code versions.
+macOS and Linux rendering have automated coverage. A Windows smoke test remains
+before a release intended for Windows users. Repeat the important checks against
+the final versioned VSIX, including opening real documents and Copilot attachment.
 
 Record the tested commit, VS Code version, OS, automated results, manual checks,
 and remaining limits in the PR. Follow [PUBLISHING.md](PUBLISHING.md) for the final

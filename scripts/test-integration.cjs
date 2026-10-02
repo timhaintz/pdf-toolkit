@@ -4,6 +4,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath, runTests } = require('@vscode/test-electron');
 const { createPdf } = require('../test/fixtures/createPdf.cjs');
+const { prepareTestProfile } = require('./test-profile.cjs');
 
 const root = path.resolve(__dirname, '..');
 const manifest = require('../package.json');
@@ -50,6 +51,7 @@ function createRun(mode) {
     fs.writeFileSync(path.join(workspace, 'second.pdf'), createPdf('second'));
     fs.copyFileSync(path.join(root, 'test/fixtures/.vscode/settings.json'),
         path.join(workspace, '.vscode/settings.json'));
+    prepareTestProfile(userData);
     return { directory, workspace, userData, extensions };
 }
 

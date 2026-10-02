@@ -95,6 +95,20 @@ function readRenderedPng(filename, probes) {
 exports.run = async function run() {
     const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     assert.ok(workspace, 'An isolated fixture workspace is open');
+    for (const [key, expected] of Object.entries({
+        'workbench.enableExperiments': false,
+        'extensions.autoCheckUpdates': false,
+        'extensions.autoUpdate': false,
+        'telemetry.telemetryLevel': 'off'
+    })) {
+        const configuration = vscode.workspace.getConfiguration();
+        const setting = configuration.inspect(key);
+        assert.ok(setting, `VS Code registers test profile setting: ${key}`);
+        const allowed = key === 'extensions.autoUpdate' ? [false, 'off'] : [expected];
+        assert.ok(allowed.includes(setting.globalValue), `${key} is configured in isolated User settings`);
+        assert.equal(setting.workspaceValue, undefined, `${key} is absent from Workspace settings`);
+        assert.ok(allowed.includes(configuration.get(key)), `${key} has the intended effective value`);
+    }
     const extension = vscode.extensions.getExtension('TimHaintz.pdf-toolkit');
     assert.ok(extension, 'PDF Toolkit was discovered by the real extension host');
     assert.equal(fs.realpathSync(extension.extensionPath),
@@ -159,7 +173,7 @@ exports.run = async function run() {
     const refocused = await exportComposite({ pages: '2', quality: 1, layout: 'grid', pagesPerImage: 1, labels: false, padding: 6 });
     assert.equal(path.dirname(refocused[0]), path.join(screenshotRoot, 'sample-composites'), 'Refocusing restores the first PDF');
     readRenderedPng(refocused[0], [pageProbe(126, 166, 2)]);
-    console.log(`PASS: ${process.env.PDF_TOOLKIT_TEST_MODE}, VS Code ${vscode.version}; activation, commands, PDF.js rendering, grid/vertical/grouped composites, ordinary screenshots and multiple PDFs.`);
+    console.log(`PASS: ${process.env.PDF_TOOLKIT_TEST_MODE}, VS Code ${vscode.version}; isolated User settings, activation, commands, PDF.js rendering, grid/vertical/grouped composites, ordinary screenshots and multiple PDFs.`);
     console.log(`Rendered grid: ${gridPng.width} x ${gridPng.height}; vertical: ${verticalPng.width} x ${verticalPng.height}. Outputs: ${screenshotRoot}`);
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
 };
