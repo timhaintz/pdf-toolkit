@@ -131,6 +131,15 @@ Simply open any `.pdf` file in VS Code. The PDF Toolkit will automatically displ
 
 ### Toolbar Controls
 
+The toolbar uses smaller controls in narrow editors and stays on one row. If it
+cannot fit, scroll it horizontally to reach the remaining controls; tabbing to a
+control also brings it into view. This works when you split the editor or open
+the Copilot sidebar.
+
+The **Screenshot** menu stays within the PDF editor's visible area. Use Up/Down
+Arrow to move through its actions, Home/End to jump to the first/last action,
+Escape to close it and return to the Screenshot button, or Tab to leave the menu.
+
 | Button | Action |
 |--------|--------|
 | Prev / Next | Navigate between pages |
