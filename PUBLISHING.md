@@ -2,7 +2,7 @@
 
 This guide covers the complete process from setting up your publisher account to publishing and updating the extension.
 
-The current release candidate is **2.3.0**. PDF Toolkit uses the existing
+The current release candidate is **2.4.0**. PDF Toolkit uses the existing
 **TimHaintz** publisher and **PDF Toolkit** extension. The default update path is
 to build and test a VSIX, then upload that exact file manually as described in
 [section 6](#6-build-test-and-upload-the-release). Account setup and CLI login
@@ -50,7 +50,7 @@ Ensure `package.json` has these key fields:
   "name": "pdf-toolkit",
   "displayName": "PDF Toolkit",
   "publisher": "TimHaintz",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "engines": { "vscode": "^1.96.0" },
   "icon": "images/icon.png",
   "repository": { "type": "git", "url": "https://github.com/timhaintz/pdf-toolkit" },
@@ -66,10 +66,15 @@ Required files:
 | `CHANGELOG.md` | Packaged release history for VS Code and Marketplace release-notes surfaces |
 | `LICENSE` | Required for publishing |
 | `images/icon.png` | Extension icon (at least 128×128px) |
+| `images/pdf-toolkit-workflow.gif` | Recorded walkthrough referenced by the README |
 
 Include the current README and changelog in the tested VSIX. They travel with the
 package; no separate text paste is needed during manual upload. Verify how the
 published listing and installed extension display them after upload.
+
+Include the walkthrough GIF in the VSIX and confirm that the packaged README's
+rewritten HTTPS GitHub image URL resolves to that asset from merged `main`.
+Check the demonstration displays on the Marketplace Details page after upload.
 
 ## 5. Login with vsce
 
@@ -98,7 +103,7 @@ npm run package:vsix
 ```
 
 This runs lint and Node tests and writes
-`artifacts/pdf-toolkit-2.3.0.vsix` for the current candidate. Test source and the
+`artifacts/pdf-toolkit-2.4.0.vsix` for the current candidate. Test source and the
 actual installed VSIX in temporary VS Code profiles and workspaces:
 
 ```powershell
@@ -106,7 +111,7 @@ npm run test:integration -- --packaged
 ```
 
 Record the release commit, file size, SHA256, VS Code/OS, test results, and final
-CI links. Inspect the packaged and installed manifests for version `2.3.0`, and
+CI links. Inspect the packaged and installed manifests for version `2.4.0`, and
 check that README, changelog, compiled code, and PDF.js assets are included.
 Once the file passes testing, keep it unchanged; a rebuild is a new candidate
 that must be verified again.
@@ -115,7 +120,7 @@ that must be verified again.
 
 1. Open [Manage Publishers & Extensions](https://marketplace.visualstudio.com/manage) and sign in to the existing publisher account.
 2. Select **TimHaintz** and locate the existing **PDF Toolkit** extension.
-3. Use the existing extension's update/upload action and select the exact tested `artifacts/pdf-toolkit-2.3.0.vsix`. Confirm version `2.3.0` and submit the update. Follow the labels shown by the current UI; do not create another extension or publisher.
+3. Use the existing extension's update/upload action and select the exact tested `artifacts/pdf-toolkit-2.4.0.vsix`. Confirm version `2.4.0` and submit the update. Follow the labels shown by the current UI; do not create another extension or publisher.
 4. Wait for Marketplace verification to finish, then complete [section 7](#7-verify). A **Verifying** status does not mean the release is publicly available.
 
 ### CLI publication (optional)
@@ -124,10 +129,10 @@ If CLI publication is explicitly chosen instead, use the existing tested package
 after authenticating:
 
 ```powershell
-npx @vscode/vsce publish --packagePath artifacts/pdf-toolkit-2.3.0.vsix
+npx @vscode/vsce publish --packagePath artifacts/pdf-toolkit-2.4.0.vsix
 ```
 
-For later releases, replace `2.3.0` with that release's version. Plain
+For later releases, replace `2.4.0` with that release's version. Plain
 `vsce publish` and version-bump forms package again and can change version/commit
 metadata, so they bypass this tested-file handoff.
 

@@ -2,7 +2,7 @@
   "name": "pdf-toolkit",
   "displayName": "PDF Toolkit",
   "description": "View PDFs, export selected pages and extract embedded raster images. Prepare the content you need for your AI coding workflow and attach it to GitHub Copilot Chat.",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "publisher": "TimHaintz",
   "author": {
     "name": "Tim Haintz",

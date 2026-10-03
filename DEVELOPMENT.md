@@ -519,3 +519,59 @@ establish manual installed-package UI testing or Windows visual coverage. Final
 GIF/package-content checks and current-head CI results are recorded separately
 on PR #11 before merging and release preparation. The initial Issue #10 package
 hash and test record above remain historical evidence.
+
+### Combined main automated QA: 3 October 2026
+
+After PRs #12, #13 and #11 merged, clean synced `main` at
+`4e1d54e9b989b10192cb305f731e8ba6e7d540e4` passed lint, all 64 Node tests
+and a dependency audit with no reported vulnerabilities. The Node suite includes
+the registered selected-image attachment command and its Copilot boundary stub;
+it does not establish a live model response.
+
+Native source integration on macOS/VS Code 1.140.0 passed activation, commands,
+PDF.js and JPEG 2000 rendering, grid/vertical/grouped composites, ordinary
+screenshots, multiple PDFs and 414 real-webview toolbar checks. The grid measured
+516×724 and the vertical composite 264×676. The run was
+`.vscode-test/runs/development-afuL1Q`; its log is under
+`.vscode-test/manual-qa/2026-10-03/combined-main/integration.log`.
+
+The Mac was locked during this automated run, so inactive frames required 50
+explicit focus-in handler events. This is automated handler/state evidence;
+native Tab traversal and visible workflow evidence are recorded separately above.
+Fresh visible combined checks initially waited for the Mac to be unlocked, then
+passed as recorded below. Final versioned source/installed-package integration
+and artifact identity are recorded in the release handoff after the release PR
+merges.
+
+### Combined main visible QA: 3 October 2026
+
+Visible VS Code 1.140.0/macOS testing used the temporary **Temp 5** source host
+from clean synced `main` at `4e1d54e9b989b10192cb305f731e8ba6e7d540e4`,
+with the Explorer and Copilot sidebar reducing the available PDF width.
+
+- Navigated the generated five-page sample and exported pages 4 and 2 through
+  **Screenshot → Current Page**. The resulting 720×960 images contain the correct
+  purple and green page content.
+- Cmd+F opened overflowed Search; searching `PDF Toolkit test page 4` found
+  `1 of 1`. Native Escape/Space closed and reopened More while preserving the query
+  and result. Screenshot's native End/Up/Enter sequence opened Composite.
+- The actual composite wizard exported pages 1–5 in labelled 72-DPI Grid groups
+  of four. The 516×724 first image contains pages 1–4 in the correct order and
+  colours; the 264×368 remainder contains labelled page 5.
+- Opened the synthetic JPEG 2000 fixture and selected **Extract Images** through
+  the Screenshot menu. It saved one native 16×16 raster image, with 128 blue pixels
+  above 128 red pixels, rather than a rendered whole-page screenshot.
+- The two genuine sample page exports started unchecked in **Add Selected Pages
+  to Copilot Chat**. Selecting only page 4 produced exactly one `page_004.png`
+  composer attachment; page 2 was absent. No question was entered or sent. The
+  test attachment was removed and the empty composer showed disabled Send.
+- Switched to the second PDF, zoomed from 100% to 125%, used More to rotate right
+  and back, toggled PDF dark mode on/off, and reset to 100%. Native Escape restored
+  focus to More. The temporary window was closed after testing.
+
+Independent output inspection and runtime comparison are under the ignored
+`.vscode-test/manual-qa/2026-10-03/combined-main/` evidence folder. All 392 compiled
+runtime/PDF.js files match the final Issue #5 candidate. These are macOS source-host
+UI checks; Windows visual/Copilot testing, OS input-method testing, a model response,
+and manual installed-package UI testing are not claimed. Earlier feature/minimum-
+version evidence remains applicable to the unchanged runtime.

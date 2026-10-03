@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-10-03
+
 ### Added
 
 - A priority-based **More** panel for narrow PDF editors. Rotation, Reset, appearance, and Search controls move there as needed, preserving their state and keyboard access while page navigation, zoom, Screenshot, and Extracted remain in the toolbar.
@@ -228,6 +230,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## Release Notes
+
+### 2.4.x - Responsive Toolbar and Workflow Guidance
+Keep PDF controls accessible in narrow editors with a priority-based More panel and improved keyboard navigation. Search state survives resizing, and the Marketplace documentation includes a recorded page-to-Copilot walkthrough and clearer privacy guidance.
 
 ### 2.3.x - Selected Copilot Attachments
 Choose individual page screenshots, embedded images, or composites to attach to Copilot Chat. Selections above the 20-image limit can be narrowed with the checked files preserved.
