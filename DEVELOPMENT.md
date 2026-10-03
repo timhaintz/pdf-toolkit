@@ -87,6 +87,37 @@ Packaging and installing in the temporary test profile do not publish a release.
 
 ## Manual checks before release
 
+### Listing and documentation checks
+
+When changing Marketplace copy, verify the README and `package.json` summary
+against the actual menu labels and supported behavior. Render the Markdown and
+follow its table-of-contents links. Check these details before including the
+documentation in a release:
+
+- The quick start appears before the table of contents and leads with the current
+  page or custom page selection, followed by selected-image attachment.
+- Whole-page screenshots, embedded raster images and whole composites are
+  described separately. Page screenshots capture vector graphics; they do not
+  crop arbitrary figures or regions.
+- Copilot capability statements match current primary documentation, with a source
+  link and the image-input-model requirement.
+- Privacy wording matches PDF loading, export locations, workspace-state history,
+  optional debug logging and the chat attachment command. Avoid promising that
+  attached files remain local until a message is sent.
+- A separately named test VSIX includes the revised summary, README and changelog.
+  Compare its compiled/PDF.js payloads to the baseline and preserve released VSIX
+  files. A documentation change does not require repeating unaffected manual
+  rendering or Copilot tests when the payloads are identical.
+
+Record or update the workflow demonstration after toolbar changes, using
+sample/public documents. Check that it matches the final toolbar, clearly shows
+the chosen page and attachment, and exposes no private documents or account
+information. Verify the README's GIF reference and caption against the actual
+recording and include the asset in the test package. The text walkthrough remains
+available alongside it.
+
+### Viewer and export checks
+
 Check the exact package intended for release, using representative documents:
 
 These short cases exercise the wizard options in the same Extension Development
@@ -333,6 +364,33 @@ edits resulted. The existing profile/authentication caveat applies to this run.
 Test attachments were cleared and the Extension Development Host was closed
 after the checks.
 
+### Initial Issue #10 listing documentation QA: 3 October 2026
+
+Reviewed the quick start and privacy explanation against the current menu labels,
+PDF loading/export code, extraction history, debug logging and both chat attachment
+helpers. GitHub's current Copilot documentation confirms PDF attachments with
+image-input models. An independent documentation review found no material issue.
+
+Lint and all 64 Node tests passed. The packaged README parsed with the locked
+vsce Markdown renderer; all 24 internal links resolved to headings, all five
+tables parsed, and the walkthrough appeared before the table of contents.
+
+The separately named test package `artifacts/pdf-toolkit-issue-10-docs.vsix`
+has 399 entries and SHA256
+`8572ecd80d6df6d63358ed1fae37c352c57055f8cbd0f18ff65a02204841add4`.
+Its packaged summary, README and Unreleased changelog were checked. All 391
+compiled/PDF.js payload files are identical to the tested 2.3.0 release VSIX;
+only the manifests, README and changelog differ. That release file remains
+unchanged, with SHA256
+`3fd761457883e6bdc17ba8286c4c0e3b975f8e060c32722a7ae63b76000063cc`.
+
+This was documentation and package-content QA. Unaffected viewer/export/Copilot
+manual tests were not repeated locally. The new PR's Linux/Windows integration
+and CodeQL results are recorded on the PR. At this initial QA stage the text
+walkthrough was present, and a recording of the final interface remained a
+follow-up after toolbar issues #4/#5. That follow-up is recorded below.
+The test package still identifies version 2.3.0 and is not a new upload artifact.
+
 ### Issue #4 responsive toolbar QA: 3 October 2026
 
 Tested the responsive toolbar from the source feature build on macOS. Isolated
@@ -436,3 +494,28 @@ is separate from the visible source-host checks above. This record does not clai
 manual installed-package UI testing or Windows desktop/Copilot testing. Test
 profiles now disable editor updates in disposable User settings, so minimum-version
 test copies remain fixed and do not prompt for a macOS updater helper.
+
+### Issue #10 final-interface demonstration QA: 3 October 2026
+
+After toolbar issues #4 and #5 were merged, the documentation was reconciled
+with the final interface. The quick start now specifies a workspace for the
+Extracted browser. Privacy wording describes the configured output folder and
+remote/synchronized environment boundary, without promising that exported or
+attached content always stays on the user's computer. PDF Toolkit's own
+telemetry/upload implementation and both attachment-only chat commands were
+reviewed against the code.
+
+The demonstration uses 11 native screenshots from visible VS Code 1.140.0 on
+macOS, showing page 14 of the public NASA Artemis I reference guide. It shows
+page export, browsing saved images, selecting exactly one of the two available
+image files, and exactly one attachment in the Copilot composer. An example
+question was prepared without sending it, then cleared. No model response is
+claimed. The README embeds `images/pdf-toolkit-workflow.gif` above its numbered
+walkthrough and table of contents; the caption describes export, selection,
+attachment, and the unsent question.
+
+This is visible source-host workflow and documentation evidence. It does not
+establish manual installed-package UI testing or Windows visual coverage. Final
+GIF/package-content checks and current-head CI results are recorded separately
+on PR #11 before merging and release preparation. The initial Issue #10 package
+hash and test record above remain historical evidence.

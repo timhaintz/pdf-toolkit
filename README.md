@@ -1,9 +1,35 @@
 # PDF Toolkit for VS Code
 
-A powerful PDF viewer extension for Visual Studio Code with native rendering and page-to-image extraction capabilities designed for AI-assisted workflows.
+View PDFs, extract the pages and figures you need, and bring them into your AI coding workflow.
+
+Export selected pages as PNG/JPEG images, extract embedded raster figures at their native pixel dimensions, and choose which saved images to attach to GitHub Copilot Chat.
 
 **Author:** Tim Haintz  
 **License:** MIT
+
+## From a PDF page to Copilot Chat
+
+**Open PDF → choose a page → export an image → discuss it**
+
+![Export a PDF page and attach the selected image to Copilot Chat](images/pdf-toolkit-workflow.gif)
+
+*Export a page, select a saved image, and prepare a Copilot question with it attached. The example question is not sent.*
+
+1. Open a PDF in a VS Code workspace and go to the page you need.
+2. Choose **📷 Screenshot → Current Page**. For specific page ranges, resolution and PNG/JPEG format, choose **Custom...** instead.
+3. Click **📁 Extracted**, choose the saved folder, then **Add Selected Pages to Copilot Chat**. Check the image files you want and press **Enter**.
+4. In Copilot Chat, choose a model that supports image input, review the attachments and ask a question such as “Explain this diagram.”
+
+Choose the export that fits your content:
+
+| Content you want | Menu option | Result |
+| --- | --- | --- |
+| A whole page, including its text, layout and vector diagrams | **Screenshot → Current Page** or **Custom...** | A rendered page image at your chosen quality. |
+| A photo or raster figure stored inside the PDF | **Screenshot → Extract Images** | Individual embedded raster images at their native dimensions; scans the document. |
+
+Page screenshots capture the whole page. They do not crop a selected figure or region. Vector charts are captured through page screenshots; **Extract Images** finds embedded raster images.
+
+Rendering and export happen inside VS Code. Attaching an image hands it to Copilot; see [Privacy and data handling](#privacy-and-data-handling).
 
 ## Table of Contents
 
@@ -24,6 +50,7 @@ A powerful PDF viewer extension for Visual Studio Code with native rendering and
   - [Changing the Screenshots Folder](#changing-the-screenshots-folder)
 - [Technical Details](#technical-details)
 - [Requirements](#requirements)
+- [Privacy and Data Handling](#privacy-and-data-handling)
 - [Responsible Use](#responsible-use)
 - [Contributing](#contributing)
 - [Development and Testing](DEVELOPMENT.md)
@@ -33,33 +60,19 @@ A powerful PDF viewer extension for Visual Studio Code with native rendering and
 
 ## Why PDF Toolkit?
 
-**The Problem:** VS Code cannot natively display PDF files, and AI assistants like GitHub Copilot cannot read PDF content directly.
+PDF Toolkit helps you inspect a document and prepare the content you want to discuss: a page from a technical specification, a research figure, or a small group of pages.
 
-**The Solution:** PDF Toolkit provides:
+- **Choose the relevant content:** export the current page or specific page ranges, then select individual saved images for chat.
+- **Control the output:** choose image quality and PNG/JPEG format, or combine pages into grid or vertical composite PNGs.
+- **Keep the workflow in VS Code:** view and navigate the PDF, inspect saved images, and attach the files you choose to Copilot Chat.
 
-1. **Native PDF Viewing** - View PDFs directly in VS Code without leaving your editor
-2. **AI-Ready Screenshots** - Extract PDF pages as images and attach them directly to GitHub Copilot Chat, enabling AI to "read" and analyze your PDF content
-
-### Use Case: Share PDFs with GitHub Copilot
-
-1. Open a PDF in VS Code
-2. Click **📷 Screenshot** → **All Pages** to extract pages as images
-3. Click **Add to Copilot Chat** in the notification
-4. The images are automatically attached to Copilot Chat - the AI can now see and analyse your PDF content!
-
-To share only some of the saved images, use **📁 Extracted → select a folder → Add Selected Pages to Copilot Chat** and check the files you want to attach. PDF Toolkit allows up to 20 image files per attachment action.
-
-This is perfect for:
-- 📚 Research papers and academic articles
-- 📋 Technical documentation and specifications
-- 📊 Reports with charts and diagrams
-- 📝 Any PDF you want AI assistance with
+[GitHub Copilot also supports PDF attachments when using a model with image input](https://docs.github.com/en/copilot/how-tos/copilot-in-your-ide/chat-with-copilot/chat-in-ide?tool=vscode#using-images-in-copilot-chat). PDF Toolkit adds control over page selection, image preparation and the files you attach. Viewing and export work without Copilot; image analysis depends on the assistant and model you use.
 
 ## Features
 
 ### PDF Viewing
 - **Native PDF Rendering**: View PDF files directly in VS Code using Mozilla PDF.js
-- **Full Image Support**: All embedded images, graphics, and diagrams render correctly
+- **Text and Graphics**: Render PDF text, images and vector graphics using PDF.js
 - **Scroll-based Viewing**: Scroll through all pages continuously
 - **Text Selection**: Select and copy text directly from PDFs
 - **Dark Mode**: Toggle inverted colours for comfortable reading (🌙 button or `D` key)
@@ -76,20 +89,20 @@ This is perfect for:
 - **Match Counter**: See current match position and total count (e.g., "3 of 17")
 - **Outline/TOC Panel**: Toggle document outline sidebar to navigate via bookmarks (`O` key)
 
-### Page Extraction (Screenshot to Images)
+### Export Pages as Images (Screenshots)
 - **Screenshot Menu**: Click the 📷 Screenshot button for quick access to all export options
 - **Current Page**: Save the currently viewed page as a PNG/JPEG image
+- **Custom Wizard**: Select specific pages, resolution (72-288 DPI), and format (PNG/JPEG)
 - **All Pages**: Export every page of a PDF as individual images
-- **Custom Wizard**: Multi-step wizard to select specific pages, resolution (72-288 DPI), and format (PNG/JPEG)
 - **Composite PNGs**: Combine up to 16 pages per image in a vertical stack, or up to 4 in a 2×2 grid, with optional spacing and page labels. Group longer selections into multiple images automatically; image size limits can split groups further.
 - **Selected Copilot Attachments**: Choose individual saved PNG/JPEG files with checkboxes before attaching them to GitHub Copilot Chat, including page screenshots, embedded images, and composites.
 
-### Image Extraction
-- **Extract Embedded Images**: Extract embedded raster images (photos, bitmaps, pre-rendered figures) directly from PDFs at their native resolution
+### Extract Embedded Raster Images
+- **Extract Embedded Images**: Extract embedded raster images (photos, bitmaps, pre-rendered figures) from PDFs at their native pixel dimensions
 - **Automatic Detection**: Scans all pages for embedded image objects (JPEG, PNG, inline images) using PDF.js operator analysis
 - **Smart Naming**: Filenames include image index, page number, and dimensions (e.g., `image_001_page3_800x600.png`)
 - **Copilot Integration**: Add extracted images directly to GitHub Copilot Chat for AI analysis
-- **Duplicate Detection**: Skips images that have already been extracted, with options to overwrite
+- **Duplicate Detection**: Skips embedded-image files that have already been extracted
 
 > **Note:** "Extract Images" finds embedded **raster** images (photos, bitmaps) stored inside the PDF. Charts and diagrams drawn as **vector graphics** (common from matplotlib, R/ggplot, Excel, LaTeX/TikZ) are not embedded images — use **Screenshot** to capture those pages instead.
 
@@ -251,7 +264,8 @@ Use **Add to Copilot Chat** after export, or select the composite folder in
 **📁 Extracted** and choose **Add Selected Pages to Copilot Chat** to pick individual
 composite files. The **Attach Extracted Pages to Copilot Chat** command also supports
 page filtering: it attaches an entire composite if it contains any selected page.
-Creating a PNG only saves it locally; attaching it to chat is a separate action.
+Creating a PNG saves it to your configured screenshots folder; attaching it to
+chat is a separate action.
 
 ### Attach Selected Images to Copilot Chat
 
@@ -313,6 +327,14 @@ This extension uses:
 ## Requirements
 
 - VS Code 1.96.0 or higher
+
+## Privacy and Data Handling
+
+PDF Toolkit renders PDFs inside VS Code using bundled PDF.js and saves exported images to your configured screenshots folder. The default is `PDF-Screenshots/` under the first workspace folder, or beside the PDF when no workspace is open. PDF Toolkit does not implement telemetry collection or a document-upload service. Storage and access depend on your VS Code environment; remote or synchronized folders may transfer content through their associated services.
+
+**Add to Copilot Chat** and the selected-image action open Chat with image files attached; they do not submit a question automatically. Once you attach or send content, its handling is governed by VS Code, GitHub Copilot and your chosen AI service. Review the files you attach and your organisation's sharing policies.
+
+PDF Toolkit stores extraction history in VS Code workspace state. Optional debug logging is off by default; when enabled, it writes diagnostics to the VS Code Output panel and can include document text. Review logs before sharing them.
 
 ## Responsible Use
 
