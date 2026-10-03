@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep PDF toolbar controls usable in narrow and split editors with compact sizing and horizontal scrolling. Prevent the Screenshot menu from being clipped, and support keyboard menu navigation and focus visibility.
+
 ## [2.3.0] - 2026-10-03
 
 ### Added

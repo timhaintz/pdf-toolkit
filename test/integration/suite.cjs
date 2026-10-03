@@ -5,6 +5,7 @@ const zlib = require('node:zlib');
 const vscode = require('vscode');
 const { createPdf, fixturePageColors } = require('../fixtures/createPdf.cjs');
 const { createJpxPdf } = require('../fixtures/createJpxPdf.cjs');
+const { testToolbar } = require('./toolbar.cjs');
 
 const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 async function withTimeout(promise, label, timeout = 35000) {
@@ -185,6 +186,7 @@ exports.run = async function run() {
     const jpxScreenshot = path.join(screenshotRoot, 'jpx-image', 'page_001.png');
     await waitForFile(jpxScreenshot);
     readRenderedPng(jpxScreenshot, [pageProbe(180, 120, 1), pageProbe(180, 360, 3)]);
+    await testToolbar(extension, workspace);
     console.log(`PASS: ${process.env.PDF_TOOLKIT_TEST_MODE}, VS Code ${vscode.version}; isolated User settings, activation, commands, PDF.js rendering including JPEG 2000, grid/vertical/grouped composites, ordinary screenshots and multiple PDFs.`);
     console.log(`Rendered grid: ${gridPng.width} x ${gridPng.height}; vertical: ${verticalPng.width} x ${verticalPng.height}. Outputs: ${screenshotRoot}`);
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');

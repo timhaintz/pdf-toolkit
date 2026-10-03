@@ -141,6 +141,29 @@ vertical image. A ten-page selection with grid groups of 4 normally produces
 image, subject to the existing dimension/pixel limits. Check automatic splitting
 independently of total pages selected.
 
+### Responsive toolbar checks
+
+Run the following matrix in the visible PDF editor against the feature build and
+again as needed against the release package. Record the actual editor widths,
+VS Code zoom, theme, platform, commit or package hash, and observed results. The
+compact CSS breakpoints are 900 px and 600 px of PDF webview width; check both
+sides of each breakpoint as well as a very narrow editor, such as 320 px. Window
+width alone does not establish the webview width when sidebars or split editors
+are open.
+
+| Check | What to do | Expected result |
+| --- | --- | --- |
+| Narrow and split editors | Open `sample.pdf`; resize a single editor and split it beside `second.pdf`. Check wide, medium, and narrow widths, including just above/below 900 px and 600 px. | Toolbar groups remain together on one row. Controls shrink at the breakpoints; horizontal scrolling reaches every control when they cannot all fit. The PDF viewer remains usable. |
+| Sidebar and repeated resizing | Open/close the Explorer and Copilot sidebars, resize the divider repeatedly, and switch between both PDFs. | Each toolbar follows its editor width without overlapping or losing controls. Page, zoom, and search state stay with the correct document. |
+| Scroll and focus | Scroll to both ends of the toolbar. Use Tab and Shift+Tab through its buttons and inputs, including controls initially out of view. | Focus is visible, and focused controls scroll into view. Inputs remain editable; related controls do not split onto different rows. |
+| Screenshot popup placement | Open Screenshot with its button near either side of a narrow pane. Resize the pane and scroll the toolbar while the menu is open. Also reduce the editor height. | The menu is outside the toolbar scroller, fits within the visible PDF editor, and repositions with the button. A short editor allows scrolling through menu actions; the menu closes if its button scrolls completely out of view. |
+| Screenshot keyboard navigation | Focus Screenshot; open with Enter, Space, or Up/Down Arrow. Navigate with Up/Down Arrow and Home/End; press Escape. Reopen and use Tab/Shift+Tab to leave. | All five actions are reachable, arrow navigation wraps, Home/End select the first/last action, Escape returns focus to Screenshot, and Tab exits without trapping focus. Menu navigation does not change the PDF page. |
+| Zoom and themes | Repeat narrow-pane and popup checks after increasing VS Code interface zoom; use light, dark, and high-contrast themes. | Labels, inputs, focused controls, and menu actions remain readable, visible, and reachable. |
+| Export regression | In narrow/split panes, run Current Page, All Pages, Custom, Composite, and Extract Images from Screenshot; browse Extracted afterward. | Actions target the intended PDF and retain their existing dialogs, output content, cancellation, and duplicate handling. The existing rendering/export and selected-image attachment matrices still apply. |
+
+This matrix covers compact sizing, scrolling, and Screenshot popup behavior. A
+priority overflow menu is a separate change and requires its own test cases.
+
 The automated suite establishes startup and rendering/export behavior; it does
 not replace checking all toolbar interactions, representative large PDFs, chat
 integration, and your supported operating systems and VS Code versions.
@@ -285,3 +308,32 @@ text was accidentally submitted during a focus change and cancelled; no workspac
 edits resulted. The existing profile/authentication caveat applies to this run.
 Test attachments were cleared and the Extension Development Host was closed
 after the checks.
+
+### Issue #4 responsive toolbar QA: 3 October 2026
+
+Tested the responsive toolbar from the source feature build on macOS. Isolated
+native integration used VS Code 1.140.0; computer-use checks used the minimum
+supported VS Code 1.96.0 through its visible Extension Development Host. The
+results below cover the source build. Source and installed-candidate integration
+also passed against `artifacts/pdf-toolkit-issue-4.vsix` (test manifest 2.3.0,
+SHA256 `1fb4966fdd94f79e2e5f48f369c6e23d7d0359fa6bdd5589e98abaf672b3a24c`).
+The candidate's compiled runtime matched the visible source host. The final
+tested commit and CI links are recorded on the issue PR.
+
+| Check | Observed result |
+| --- | --- |
+| Native width and resize coverage | Passed: 168 toolbar assertions covered webview widths 1600, 900, 600, 480, 320, 768, then 1600 px, including compact sizing, atomic groups on one row, horizontal overflow, and visibility of focused controls. |
+| Native popup boundaries | Passed: checks at a 150 px viewport height exercised the Screenshot popup, End navigation to the last action, resizing, and scrolling with focus remaining visible. |
+| Visible split-pane resizing | Passed in VS Code 1.96.0: `sample.pdf` rendered in split panes. Repeated **Decrease Editor Width** actions narrowed the editor while the toolbar remained usable. |
+| Visible forward focus and menu entry | Passed: Tab moved from Search through previous match, next match, and close search to Screenshot. Enter opened the menu on its first action; End, Home, Up Arrow, Escape, and Space performed the expected menu navigation, closure, and reopening. |
+| Visible exit and reverse focus | Passed: Tab left the menu for Extracted. Shift+Tab returned to Screenshot; Space reopened the menu, and Shift+Tab exited to close search without trapping focus. |
+
+Lint, all 64 Node tests, and dependency audit passed, with zero reported
+vulnerabilities. Screenshots and other local evidence remain in the ignored QA
+directory. The layout fixture uses the production HTML, PDF.js and controller
+inside a real VS Code webview. In inactive test frames, Chromium can focus an
+element without emitting `focusin`; the fixture explicitly supplies that event
+only when inactivity and the missing event are verified, and records each case.
+Those assertions test the focus handler and real geometry; visible Tab checks
+above establish native keyboard traversal. This record does not establish manual
+testing of an installed VSIX or visual testing on a Windows desktop.

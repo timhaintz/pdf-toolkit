@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { CompositeOptions, planCompositeImages } from './compositeLayout';
+import { setupPdfToolbar } from './pdfToolbar';
 
 interface CompositeGroup { width: number; height: number; pages: number[] }
 interface CompositeRequest {
@@ -898,15 +899,40 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             color: var(--vscode-textLink-foreground);
         }
 
+        .toolbar-shell {
+            display: flex;
+            min-width: 0;
+            flex-shrink: 0;
+            background-color: var(--vscode-titleBar-activeBackground);
+            border-bottom: 1px solid var(--vscode-titleBar-border);
+        }
+
+        .toolbar-viewport {
+            flex: 1;
+            min-width: 0;
+            overflow-x: auto;
+            overflow-y: hidden;
+            scrollbar-width: thin;
+            scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
+        }
+
         .toolbar {
             display: flex;
             align-items: center;
             gap: 10px;
             padding: 8px 16px;
-            background-color: var(--vscode-titleBar-activeBackground);
-            border-bottom: 1px solid var(--vscode-titleBar-border);
+            min-width: max-content;
+            width: 100%;
             min-height: 40px;
-            flex-shrink: 0;
+        }
+
+        .toolbar > * { flex-shrink: 0; }
+
+        .toolbar-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
         }
 
         .toolbar button {
@@ -928,6 +954,11 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             cursor: not-allowed;
         }
 
+        button:focus-visible, input:focus-visible, a:focus-visible {
+            outline: 2px solid var(--vscode-focusBorder);
+            outline-offset: 1px;
+        }
+
         .toolbar button.extract-btn {
             background-color: var(--vscode-button-secondaryBackground);
             color: var(--vscode-button-secondaryForeground);
@@ -945,16 +976,15 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
 
         .screenshot-dropdown {
             display: none;
-            position: absolute;
-            top: 100%;
-            left: 0;
+            position: fixed;
             background-color: var(--vscode-dropdown-background);
             border: 1px solid var(--vscode-dropdown-border);
             border-radius: 3px;
-            min-width: 180px;
+            width: max-content;
+            min-width: min(180px, calc(100vw - 16px));
+            overflow-y: auto;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
             z-index: 1000;
-            margin-top: 4px;
         }
 
         .screenshot-dropdown.show {
@@ -977,6 +1007,12 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             background-color: var(--vscode-list-hoverBackground);
         }
 
+        .screenshot-dropdown button:focus-visible {
+            background-color: var(--vscode-list-focusBackground);
+            color: var(--vscode-list-focusForeground);
+            outline-offset: -2px;
+        }
+
         .screenshot-dropdown .divider {
             height: 1px;
             background-color: var(--vscode-dropdown-border);
@@ -994,6 +1030,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             margin-left: auto;
             font-size: 13px;
             color: var(--vscode-descriptionForeground);
+            white-space: nowrap;
         }
 
         .page-input {
@@ -1027,6 +1064,23 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         .zoom-display::-webkit-outer-spin-button {
             -webkit-appearance: none;
             margin: 0;
+        }
+
+        @media (max-width: 900px) {
+            .toolbar { gap: 6px; padding: 6px 8px; }
+            .toolbar-group { gap: 4px; }
+            .toolbar button { padding: 6px 8px; }
+            .toolbar .search-input { width: 110px; }
+            .toolbar-info { display: none; }
+        }
+
+        @media (max-width: 600px) {
+            .toolbar { gap: 4px; }
+            .toolbar button { padding: 6px; }
+            .toolbar .page-input { width: 42px; padding: 4px; }
+            .toolbar .zoom-display { min-width: 52px; width: 52px; padding: 4px; }
+            .toolbar .search-input { width: 90px; padding: 4px; }
+            .toolbar-separator { margin: 0 2px; }
         }
 
         #pdf-container {
@@ -1313,46 +1367,53 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             PDF Toolkit
         </a>
     </div>
-    <div class="toolbar">
+    <div class="toolbar-shell">
+      <div id="toolbar-viewport" class="toolbar-viewport" role="region" aria-label="PDF controls">
+       <div id="pdf-toolbar" class="toolbar">
+        <div id="page-controls" class="toolbar-group" role="group" aria-label="Page navigation">
         <button id="prev-page" title="Previous Page">◀ Prev</button>
-        <span>Page</span>
-        <input type="number" id="page-input" class="page-input" min="1" value="1">
+        <label for="page-input">Page</label>
+        <input type="number" id="page-input" class="page-input" aria-label="Page number" min="1" value="1">
         <span>of <span id="page-count">-</span></span>
         <button id="next-page" title="Next Page">Next ▶</button>
+        </div>
         <div class="toolbar-separator"></div>
+        <div id="zoom-controls" class="toolbar-group" role="group" aria-label="Zoom">
         <button id="zoom-out" title="Zoom Out">−</button>
-        <input type="text" id="zoom-display" class="zoom-display" value="100%" title="Zoom level (25% - 500%). Type a value and press Enter.">
+        <input type="text" id="zoom-display" class="zoom-display" aria-label="Zoom percentage" value="100%" title="Zoom level (25% - 500%). Type a value and press Enter.">
         <button id="zoom-in" title="Zoom In">+</button>
         <button id="zoom-fit" title="Fit to Width">Fit Width</button>
+        </div>
+        <div id="reset-controls" class="toolbar-group">
         <button id="zoom-reset" title="Reset Zoom">Reset</button>
+        </div>
         <div class="toolbar-separator"></div>
+        <div id="rotation-controls" class="toolbar-group" role="group" aria-label="Rotation">
         <button id="rotate-ccw" title="Rotate Counter-Clockwise (Shift+R)">↶</button>
         <button id="rotate-cw" title="Rotate Clockwise (R)">↷</button>
+        </div>
+        <div id="appearance-controls" class="toolbar-group" role="group" aria-label="Appearance">
         <button id="dark-mode" title="Toggle Dark Mode (D)">🌙</button>
         <div class="toolbar-separator"></div>
         <button id="toggle-outline" title="Toggle Outline/TOC (O)">📑</button>
-        <div class="search-container">
-            <input type="text" id="search-input" class="search-input" placeholder="Search... (Ctrl+F)" title="Search in PDF">
+        </div>
+        <div id="search-controls" class="search-container">
+            <input type="text" id="search-input" class="search-input" aria-label="Search PDF" placeholder="Search... (Ctrl+F)" title="Search in PDF">
             <span id="search-results" class="search-results"></span>
             <button id="search-prev" class="search-nav" title="Previous match (Shift+Enter)">▲</button>
             <button id="search-next" class="search-nav" title="Next match (Enter)">▼</button>
             <button id="search-close" class="search-nav" title="Close search (Escape)">✕</button>
         </div>
         <div class="toolbar-separator"></div>
-        <div class="screenshot-menu">
-            <button id="screenshot-btn" class="extract-btn" title="Take screenshot of PDF pages">📷 Screenshot ▾</button>
-            <div id="screenshot-dropdown" class="screenshot-dropdown">
-                <button id="screenshot-current" title="Screenshot current page only">📄 Current Page</button>
-                <button id="screenshot-all" title="Screenshot all pages">📚 All Pages</button>
-                <div class="divider"></div>
-                <button id="screenshot-custom" title="Custom screenshot options">⚙️ Custom...</button>
-                <button id="screenshot-composite" title="Combine selected pages into PNG images">▦ Composite...</button>
-                <div class="divider"></div>
-                <button id="extract-images" title="Extract embedded raster images (photos, bitmaps) at native resolution. For vector charts/diagrams, use Screenshot instead.">🖼️ Extract Images</button>
-            </div>
+        <div id="screenshot-controls" class="screenshot-menu">
+            <button id="screenshot-btn" class="extract-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="screenshot-dropdown" title="Take screenshot of PDF pages">📷 Screenshot ▾</button>
         </div>
+        <div id="extracted-controls" class="toolbar-group">
         <button id="browse-extracted-btn" class="extract-btn" title="Browse previously extracted PDFs">📁 Extracted</button>
+        </div>
         <span class="toolbar-info" id="file-info"></span>
+       </div>
+      </div>
     </div>
     <div class="main-container">
         <div id="outline-panel" class="outline-panel">
@@ -1365,6 +1426,16 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                 <span>Loading PDF...</span>
             </div>
         </div>
+    </div>
+
+    <div id="screenshot-dropdown" class="screenshot-dropdown" role="menu" aria-label="Screenshot options">
+        <button id="screenshot-current" role="menuitem" title="Screenshot current page only">📄 Current Page</button>
+        <button id="screenshot-all" role="menuitem" title="Screenshot all pages">📚 All Pages</button>
+        <div class="divider" role="separator"></div>
+        <button id="screenshot-custom" role="menuitem" title="Custom screenshot options">⚙️ Custom...</button>
+        <button id="screenshot-composite" role="menuitem" title="Combine selected pages into PNG images">▦ Composite...</button>
+        <div class="divider" role="separator"></div>
+        <button id="extract-images" role="menuitem" title="Extract embedded raster images (photos, bitmaps) at native resolution. For vector charts/diagrams, use Screenshot instead.">🖼️ Extract Images</button>
     </div>
 
     <script nonce="${nonce}" type="module">
@@ -2326,44 +2397,31 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         document.getElementById('search-prev').addEventListener('click', prevMatch);
         document.getElementById('search-close').addEventListener('click', clearSearch);
 
-        // Screenshot dropdown menu
-        const screenshotBtn = document.getElementById('screenshot-btn');
-        const screenshotDropdown = document.getElementById('screenshot-dropdown');
-
-        screenshotBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            screenshotDropdown.classList.toggle('show');
-        });
-
-        // Close dropdown when clicking outside
-        document.addEventListener('click', (e) => {
-            if (!screenshotBtn.contains(e.target) && !screenshotDropdown.contains(e.target)) {
-                screenshotDropdown.classList.remove('show');
-            }
-        });
+        // Serialized browser controller shares no extension-host state.
+        const toolbarMenus = (${setupPdfToolbar.toString()})();
 
         document.getElementById('screenshot-current').addEventListener('click', () => {
-            screenshotDropdown.classList.remove('show');
+            toolbarMenus.closeScreenshot();
             vscode.postMessage({ type: 'screenshotCurrent' });
         });
 
         document.getElementById('screenshot-all').addEventListener('click', () => {
-            screenshotDropdown.classList.remove('show');
+            toolbarMenus.closeScreenshot();
             vscode.postMessage({ type: 'screenshotAll' });
         });
 
         document.getElementById('screenshot-custom').addEventListener('click', () => {
-            screenshotDropdown.classList.remove('show');
+            toolbarMenus.closeScreenshot();
             vscode.postMessage({ type: 'openCustomMenu', totalPages: totalPages, currentPage: currentPage });
         });
 
         document.getElementById('screenshot-composite').addEventListener('click', () => {
-            screenshotDropdown.classList.remove('show');
+            toolbarMenus.closeScreenshot();
             vscode.postMessage({ type: 'openCompositeMenu' });
         });
 
         document.getElementById('extract-images').addEventListener('click', () => {
-            screenshotDropdown.classList.remove('show');
+            toolbarMenus.closeScreenshot();
             extractEmbeddedImages();
         });
 
@@ -2397,15 +2455,17 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
+            if (e.defaultPrevented) return;
             // Ctrl+F to focus search - always works
             if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
                 e.preventDefault();
+                toolbarMenus.closeScreenshot();
                 document.getElementById('search-input').focus();
                 return;
             }
 
             // Skip other shortcuts if user is typing in an input
-            if (e.target.tagName === 'INPUT') return;
+            if (e.target.tagName === 'INPUT' || e.target.closest('[role="menu"]')) return;
 
             if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
                 if (currentPage > 1) scrollToPage(currentPage - 1);
