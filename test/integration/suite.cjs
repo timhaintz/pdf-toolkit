@@ -98,6 +98,7 @@ exports.run = async function run() {
     const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     assert.ok(workspace, 'An isolated fixture workspace is open');
     for (const [key, expected] of Object.entries({
+        'update.mode': 'none',
         'workbench.enableExperiments': false,
         'extensions.autoCheckUpdates': false,
         'extensions.autoUpdate': false,
