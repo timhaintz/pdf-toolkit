@@ -519,3 +519,25 @@ establish manual installed-package UI testing or Windows visual coverage. Final
 GIF/package-content checks and current-head CI results are recorded separately
 on PR #11 before merging and release preparation. The initial Issue #10 package
 hash and test record above remain historical evidence.
+
+### Combined main automated QA: 3 October 2026
+
+After PRs #12, #13 and #11 merged, clean synced `main` at
+`4e1d54e9b989b10192cb305f731e8ba6e7d540e4` passed lint, all 64 Node tests
+and a dependency audit with no reported vulnerabilities. The Node suite includes
+the registered selected-image attachment command and its Copilot boundary stub;
+it does not establish a live model response.
+
+Native source integration on macOS/VS Code 1.140.0 passed activation, commands,
+PDF.js and JPEG 2000 rendering, grid/vertical/grouped composites, ordinary
+screenshots, multiple PDFs and 414 real-webview toolbar checks. The grid measured
+516×724 and the vertical composite 264×676. The run was
+`.vscode-test/runs/development-afuL1Q`; its log is under
+`.vscode-test/manual-qa/2026-10-03/combined-main/integration.log`.
+
+The Mac was locked during this automated run, so inactive frames required 50
+explicit focus-in handler events. This is automated handler/state evidence;
+native Tab traversal and visible workflow evidence are recorded separately above.
+Fresh visible combined checks remain a release-readiness gate until the Mac is
+unlocked. Final versioned source/installed-package integration and artifact
+identity are recorded in the release handoff after the release PR merges.
