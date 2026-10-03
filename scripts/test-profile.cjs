@@ -5,6 +5,8 @@ const { applyEdits, modify, parse } = require('jsonc-parser');
 // Application-scoped settings must live in the isolated profile's User settings,
 // not in the fixture workspace. Existing choices and JSON comments are preserved.
 const profileDefaults = {
+    // Keep the downloaded/editor version fixed and avoid macOS updater prompts.
+    'update.mode': 'none',
     'workbench.enableExperiments': false,
     'extensions.autoCheckUpdates': false,
     // VS Code 1.96 accepts false; newer versions migrate it to "off" in User settings.

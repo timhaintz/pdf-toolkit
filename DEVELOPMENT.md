@@ -42,9 +42,14 @@ Workspace settings contain PDF preferences and valid workspace options.
 
 The integration runner starts separate VS Code processes with disposable User
 data, extensions directories, and workspaces under `.vscode-test/runs/`. It
-prepares those processes' User settings for extension updates, experiments, and
-telemetry; these Application-scoped settings belong in User settings. F5 does
-not run that preparation step or change your everyday User settings.
+prepares those processes' User settings for editor and extension updates,
+experiments, and telemetry; these Application-scoped settings belong in User
+settings. In a fresh disposable User-data directory, `update.mode` defaults to
+`none` so an older VS Code test build stays on the selected version without an
+updater prompt. Existing choices in that test profile are preserved. F5 does not
+run that preparation step or change your everyday User settings. For a manually
+launched isolated test process, apply the same settings only inside its disposable
+User-data directory, never to your everyday User settings or fixture workspace.
 
 ## Automated rendering and package tests
 
@@ -104,11 +109,12 @@ documentation in a release:
   files. A documentation change does not require repeating unaffected manual
   rendering or Copilot tests when the payloads are identical.
 
-Record a short workflow video after the toolbar work in issues #4 and #5 has
-settled the interface, using sample/public documents. Check that it matches the
-final toolbar, clearly shows the chosen page and attachment, and exposes no
-private documents or account information. The README's text walkthrough provides
-the demonstration until that recording is added.
+Record or update the workflow demonstration after toolbar changes, using
+sample/public documents. Check that it matches the final toolbar, clearly shows
+the chosen page and attachment, and exposes no private documents or account
+information. Verify the README's GIF reference and caption against the actual
+recording and include the asset in the test package. The text walkthrough remains
+available alongside it.
 
 ### Viewer and export checks
 
@@ -170,6 +176,48 @@ vertical image. A ten-page selection with grid groups of 4 normally produces
 4 + 4 + 2 pages across three files. A vertical group of 10 can produce one tall
 image, subject to the existing dimension/pixel limits. Check automatic splitting
 independently of total pages selected.
+
+### Responsive toolbar checks
+
+Run the following matrix in the visible PDF editor against the feature build and
+again as needed against the release package. Record the actual editor widths,
+VS Code zoom, theme, platform, commit or package hash, and observed results. The
+compact CSS breakpoints are 900 px and 600 px of PDF webview width; check both
+sides of each breakpoint as well as a very narrow editor, such as 320 px. Window
+width alone does not establish the webview width when sidebars or split editors
+are open.
+
+| Check | What to do | Expected result |
+| --- | --- | --- |
+| Narrow and split editors | Open `sample.pdf`; resize a single editor and split it beside `second.pdf`. Check wide, medium, and narrow widths, including just above/below 900 px and 600 px. | Toolbar groups remain together on one row. Controls shrink at the breakpoints; More exposes overflowed groups, and horizontal scrolling reaches any remaining inline controls that cannot fit. The PDF viewer remains usable. |
+| Sidebar and repeated resizing | Open/close the Explorer and Copilot sidebars, resize the divider repeatedly, and switch between both PDFs. | Each toolbar follows its editor width without overlapping or losing controls. Page, zoom, and search state stay with the correct document. |
+| Scroll and focus | Scroll to both ends of the toolbar. Use Tab and Shift+Tab through its buttons and inputs, including controls initially out of view. | Focus is visible, and focused controls scroll into view. Inputs remain editable; related controls do not split onto different rows. |
+| Screenshot popup placement | Open Screenshot with its button near either side of a narrow pane. Resize the pane and scroll the toolbar while the menu is open. Also reduce the editor height. | The menu is outside the toolbar scroller, fits within the visible PDF editor, and repositions with the button. A short editor allows scrolling through menu actions; the menu closes if its button scrolls completely out of view. |
+| Screenshot keyboard navigation | Focus Screenshot; open with Enter, Space, or Up/Down Arrow. Navigate with Up/Down Arrow and Home/End; press Escape. Reopen and use Tab/Shift+Tab to leave. | All five actions are reachable, arrow navigation wraps, Home/End select the first/last action, Escape returns focus to Screenshot, and Tab exits without trapping focus. Menu navigation does not change the PDF page. |
+| Zoom and themes | Repeat narrow-pane and popup checks after increasing VS Code interface zoom; use light, dark, and high-contrast themes. | Labels, inputs, focused controls, and menu actions remain readable, visible, and reachable. |
+| Export regression | In narrow/split panes, run Current Page, All Pages, Custom, Composite, and Extract Images from Screenshot; browse Extracted afterward. | Actions target the intended PDF and retain their existing dialogs, output content, cancellation, and duplicate handling. The existing rendering/export and selected-image attachment matrices still apply. |
+
+This matrix covers compact sizing, scrolling, and Screenshot popup behavior.
+Also run the priority overflow cases below.
+
+### Priority overflow checks
+
+Use the same width, split-editor, zoom, and theme setup as the responsive matrix.
+Check the actual groups in **More** after each resize; its priority decisions use
+the measured control widths, rather than a fixed viewport breakpoint alone.
+
+| Check | What to do | Expected result |
+| --- | --- | --- |
+| Removal order and pinned controls | Narrow the editor in small steps until More appears and additional groups move into it. Widen again. | Groups move in the order rotation, Reset, appearance (dark mode and outline), then Search. Inside More they retain their original toolbar order. Page navigation, zoom (including Fit Width), Screenshot, and Extracted stay inline; More stays pinned outside the scroller. Groups return inline when space permits. |
+| Very narrow core toolbar | Make a split editor narrow enough that the remaining inline controls cannot all fit. Scroll horizontally and tab through the inline controls. | The fallback scroll reaches the remaining controls, with focus visible. More remains available so overflowed groups can still be used. |
+| More keyboard access | Open More with mouse, Enter, or Space. Use Tab and Shift+Tab through its mixed buttons and inputs, including both ends of the panel, then press Escape. | Native focus navigation reaches every visible control without treating the panel as an arrow-key action menu or trapping focus. At a panel boundary, Tab/Shift+Tab exits through More's toolbar tab position. Escape closes the panel and returns focus to More. |
+| Search shortcut and controls | Move Search into More, close More, and press Ctrl+F or Cmd+F on macOS. Enter a query, navigate matches, and edit the text using selection and caret keys. | More opens with Search focused. Match counts and previous/next/close search behave as they do inline; text editing uses normal input behavior. |
+| Resize with active input | Type a query, select a substring or place the caret in its middle, then resize until Search changes location. Repeat with More open and closed, and widen until all controls fit again. | The same search value, match state, selection/caret, and input focus are preserved. More opens if the focused control moves into it; widening restores the focused input inline. Moving controls does not duplicate them or reset PDF state. |
+| Composition and search Escape | While composing text, resize the editor and press Escape; complete composition, then update results without changing width. Press Escape in overflowed Search and repeat inline. | Search stays attached during composition and moves only after composition ends. Partial input does not trigger searches; the completed query is searched after composition ends. Escape during composition leaves the input and panel intact. Result updates alone do not reparent or refocus Search. Outside composition, Escape in More preserves the query and closes More; inline Escape retains its existing clear-search behavior. |
+| Removing the More button | Focus More and widen the editor until all groups fit inline. | More disappears, and focus moves to Extracted rather than being lost on a hidden control. |
+| Overflowed actions | Activate rotation in both directions, Reset, dark mode, and outline from More. Repeat after those controls return inline. | Each action fires once and targets the active PDF. Its result matches the inline action, with state retained through resizing. |
+| Popup transitions | Alternate More and Screenshot; click outside each popup and resize while open. Repeat in a short editor and with the Copilot sidebar open. | Popups remain visible within the PDF editor, close as appropriate without overlaying each other, and preserve accessible focus. |
+| Document and export regression | Keep two PDFs open; switch between them and run the existing Screenshot/Extracted flows and selected-image attachment checks. | Overflow changes do not redirect actions to another PDF or change exported content, dialogs, attachment selection, cancellation, or duplicate handling. |
 
 The automated suite establishes startup and rendering/export behavior; it does
 not replace checking all toolbar interactions, representative large PDFs, chat
@@ -316,7 +364,7 @@ edits resulted. The existing profile/authentication caveat applies to this run.
 Test attachments were cleared and the Extension Development Host was closed
 after the checks.
 
-### Issue #10 listing documentation QA: 3 October 2026
+### Initial Issue #10 listing documentation QA: 3 October 2026
 
 Reviewed the quick start and privacy explanation against the current menu labels,
 PDF loading/export code, extraction history, debug logging and both chat attachment
@@ -338,6 +386,136 @@ unchanged, with SHA256
 
 This was documentation and package-content QA. Unaffected viewer/export/Copilot
 manual tests were not repeated locally. The new PR's Linux/Windows integration
-and CodeQL results are recorded on the PR. The text walkthrough is present; a
-video showing the final interface remains a follow-up after toolbar issues #4/#5.
+and CodeQL results are recorded on the PR. At this initial QA stage the text
+walkthrough was present, and a recording of the final interface remained a
+follow-up after toolbar issues #4/#5. That follow-up is recorded below.
 The test package still identifies version 2.3.0 and is not a new upload artifact.
+
+### Issue #4 responsive toolbar QA: 3 October 2026
+
+Tested the responsive toolbar from the source feature build on macOS. Isolated
+native integration used VS Code 1.140.0; computer-use checks used the minimum
+supported VS Code 1.96.0 through its visible Extension Development Host. The
+results below cover the source build. Source and installed-candidate integration
+also passed against `artifacts/pdf-toolkit-issue-4.vsix` (test manifest 2.3.0,
+SHA256 `1fb4966fdd94f79e2e5f48f369c6e23d7d0359fa6bdd5589e98abaf672b3a24c`).
+The candidate's compiled runtime matched the visible source host. The final
+tested commit and CI links are recorded on the issue PR.
+
+| Check | Observed result |
+| --- | --- |
+| Native width and resize coverage | Passed: 168 toolbar assertions covered webview widths 1600, 900, 600, 480, 320, 768, then 1600 px, including compact sizing, atomic groups on one row, horizontal overflow, and visibility of focused controls. |
+| Native popup boundaries | Passed: checks at a 150 px viewport height exercised the Screenshot popup, End navigation to the last action, resizing, and scrolling with focus remaining visible. |
+| Visible split-pane resizing | Passed in VS Code 1.96.0: `sample.pdf` rendered in split panes. Repeated **Decrease Editor Width** actions narrowed the editor while the toolbar remained usable. |
+| Visible forward focus and menu entry | Passed: Tab moved from Search through previous match, next match, and close search to Screenshot. Enter opened the menu on its first action; End, Home, Up Arrow, Escape, and Space performed the expected menu navigation, closure, and reopening. |
+| Visible exit and reverse focus | Passed: Tab left the menu for Extracted. Shift+Tab returned to Screenshot; Space reopened the menu, and Shift+Tab exited to close search without trapping focus. |
+
+Lint, all 64 Node tests, and dependency audit passed, with zero reported
+vulnerabilities. Screenshots and other local evidence remain in the ignored QA
+directory. The layout fixture uses the production HTML, PDF.js and controller
+inside a real VS Code webview. In inactive test frames, Chromium can focus an
+element without emitting `focusin`; the fixture explicitly supplies that event
+only when inactivity and the missing event are verified, and records each case.
+Those assertions test the focus handler and real geometry; visible Tab checks
+above establish native keyboard traversal. This record does not establish manual
+testing of an installed VSIX or visual testing on a Windows desktop.
+
+### Issue #5 priority overflow QA: 3 October 2026
+
+The candidate `artifacts/pdf-toolkit-issue-5.vsix` is a test package declaring
+2.3.0, not a Marketplace release. The final selection-fix candidate is 11,677,704
+bytes, SHA256 `9bfa801a03d0d3d9a7dd3afbaa1b467aba22427f18054ee007045054861ff1f5`.
+All 392 compiled/PDF.js payloads match the source QA baseline; the previously
+released 2.3.0 package remains unchanged. The archive review is saved as
+`package-identity-selection-final.json` in the ignored issue QA directory. The
+earlier 412-assertion candidate was 11,677,598 bytes, SHA256
+`2721d16e3fc992d09b1acebcde6272e88ca503352755ad596bc7f433963f2b28`,
+reviewed in `package-identity-reviewed.json`. The initial
+407-assertion candidate was 11,677,166 bytes, SHA256
+`2967deb9e6d466a81d956e700d0cb3bd163b948aa4accefb6a9d9e9c9deb9876`;
+these earlier results and evidence remain part of the QA history.
+
+On macOS arm64, lint and all 64 Node tests passed. Source and installed-package
+integration passed on VS Code 1.140.0, with **414 toolbar assertions per mode**
+at 1600, 1200, 900, 768, 600, 480, 360, 320, 768, and 1600 px. They verify priority
+and visual order, pinned More, original DOM identity, focus and caret preservation,
+pending search results, composition deferral, Escape behavior, relocated actions,
+popup bounds, and the existing Screenshot menu. PDF.js/JPEG 2000 rendering,
+screenshots, grid/vertical/grouped composites, and multiple PDFs also passed.
+The final isolated runs were `development-SYLk7Q` and `packaged-eHZ1iV`, with
+zero explicit inactive-frame `focusin` events. Earlier 412-assertion runs
+`development-LZrwlL` and `packaged-j81cPg` each recorded 50 such handler events;
+they remain distinguished from native keyboard traversal as in the Issue #4 record.
+
+Minimum-version source integration passed on VS Code 1.96.0 with all 414 toolbar
+assertions in `development-OU17O4`, including the final selection-restoration,
+completed-query composition, and composing-Escape checks; its log is
+`minimum-selection-final.log`. No explicit inactive-frame `focusin` events were
+needed. The earlier 412-assertion run `development-5EL0WM` remains recorded in
+`minimum-reviewed.log`, and the 411-assertion run `development-hVEVVv` in
+`minimum-composition-final.log`.
+The composition events exercise production handlers; they do not establish an
+OS input-method test. Partial IME input now defers searches until composition
+ends, then searches the completed query. Focus visibility adjusts the control's
+own scroll container without interrupting the PDF's match navigation. Search
+checks verify selected matched text and its visibility: the existing page counter
+follows the top visible page after smooth scrolling.
+
+Earlier visible source-host checks in a temporary VS Code 1.140.0 profile passed:
+
+- Enter and Space open More; native Tab traverses its buttons, and Tab/Shift+Tab
+  leave through its toolbar position without trapping focus. Escape restores More.
+- In split editors, Cmd+F opens overflowed Search. Escape preserves its query and
+  match count; reopening retains them. Home/Shift+Right selected the first character.
+- Dragging the split divider moved focused Search inline to More and back while
+  retaining the selected character, query, results, and PDF/zoom state.
+- In a very narrow pane, native Tab revealed the scrolled Screenshot button and
+  opened its visible menu. More remained pinned. Light, dark, and high-contrast
+  themes, including an enlarged VS Code interface, kept controls and popups readable.
+
+The final visible source-host repeat in the temporary **Temp 3** profile passed
+two More → inline → More resize cycles, retaining the selected first `P`, query
+`page 4`, result count `1 of 1`, page indicator `3`, and 100% zoom. Native Tab and
+Shift+Tab exited More; Space and Enter opened it. Focus revealed Screenshot in
+the narrow scroller, and End/Escape worked in its menu.
+
+That repeat first caught a browser-boundary defect: focus stayed on Search, but
+resizing selected the whole query instead of preserving its selection. A bounded
+selection-restoration fix was then applied and verified visibly and by regression
+checks that model the browser's boundary behavior. The failed
+`native-final-narrow.txt`/PNG evidence is retained as a failure, not a final pass.
+The corrected evidence is `native-selection-fixed-wide.txt`,
+`native-selection-fixed-narrow.txt` with its PNG, and
+`native-final-keyboard.txt` with its PNG. These checks do not establish an OS
+input-method test.
+
+Evidence is under `.vscode-test/manual-qa/2026-10-03/issue-5/`. Native integration
+is separate from the visible source-host checks above. This record does not claim
+manual installed-package UI testing or Windows desktop/Copilot testing. Test
+profiles now disable editor updates in disposable User settings, so minimum-version
+test copies remain fixed and do not prompt for a macOS updater helper.
+
+### Issue #10 final-interface demonstration QA: 3 October 2026
+
+After toolbar issues #4 and #5 were merged, the documentation was reconciled
+with the final interface. The quick start now specifies a workspace for the
+Extracted browser. Privacy wording describes the configured output folder and
+remote/synchronized environment boundary, without promising that exported or
+attached content always stays on the user's computer. PDF Toolkit's own
+telemetry/upload implementation and both attachment-only chat commands were
+reviewed against the code.
+
+The demonstration uses 11 native screenshots from visible VS Code 1.140.0 on
+macOS, showing page 14 of the public NASA Artemis I reference guide. It shows
+page export, browsing saved images, selecting exactly one of the two available
+image files, and exactly one attachment in the Copilot composer. An example
+question was prepared without sending it, then cleared. No model response is
+claimed. The README embeds `images/pdf-toolkit-workflow.gif` above its numbered
+walkthrough and table of contents; the caption describes export, selection,
+attachment, and the unsent question.
+
+This is visible source-host workflow and documentation evidence. It does not
+establish manual installed-package UI testing or Windows visual coverage. Final
+GIF/package-content checks and current-head CI results are recorded separately
+on PR #11 before merging and release preparation. The initial Issue #10 package
+hash and test record above remain historical evidence.

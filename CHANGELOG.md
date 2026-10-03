@@ -7,10 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A priority-based **More** panel for narrow PDF editors. Rotation, Reset, appearance, and Search controls move there as needed, preserving their state and keyboard access while page navigation, zoom, Screenshot, and Extracted remain in the toolbar.
+
 ### Changed
 
-- Refocused the Marketplace description on selected-page and figure preparation, with a quick-start walkthrough before the table of contents.
+- Refocused the Marketplace description on selected-page and figure preparation, with a quick-start walkthrough and recorded demonstration before the table of contents.
 - Updated Copilot PDF-attachment guidance, clarified whole-page screenshots versus embedded raster images, and documented PDF Toolkit's data handling and chat attachment boundary.
+
+### Fixed
+
+- Keep PDF toolbar controls usable in narrow and split editors with compact sizing and horizontal scrolling. Prevent the Screenshot menu from being clipped, and support keyboard menu navigation and focus visibility.
+- Preserve search text selection when controls move during resizing, wait for completed text composition, and keep matched PDF text visible while toolbar focus changes.
 
 ## [2.3.0] - 2026-10-03
 

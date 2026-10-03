@@ -11,7 +11,11 @@ Export selected pages as PNG/JPEG images, extract embedded raster figures at the
 
 **Open PDF → choose a page → export an image → discuss it**
 
-1. Open a PDF in VS Code and go to the page you need.
+![Export a PDF page and attach the selected image to Copilot Chat](images/pdf-toolkit-workflow.gif)
+
+*Export a page, select a saved image, and prepare a Copilot question with it attached. The example question is not sent.*
+
+1. Open a PDF in a VS Code workspace and go to the page you need.
 2. Choose **📷 Screenshot → Current Page**. For specific page ranges, resolution and PNG/JPEG format, choose **Custom...** instead.
 3. Click **📁 Extracted**, choose the saved folder, then **Add Selected Pages to Copilot Chat**. Check the image files you want and press **Enter**.
 4. In Copilot Chat, choose a model that supports image input, review the attachments and ask a question such as “Explain this diagram.”
@@ -140,6 +144,23 @@ Simply open any `.pdf` file in VS Code. The PDF Toolkit will automatically displ
 
 ### Toolbar Controls
 
+The toolbar uses smaller controls in narrow editors and stays on one row. As
+space runs out, rotation, Reset, dark mode and outline, then Search move into
+**More**. Page navigation, zoom, Screenshot, and Extracted stay in the toolbar.
+If even those controls cannot fit, scroll the toolbar horizontally; tabbing to
+an inline control also brings it into view. This works when you split the editor
+or open the Copilot sidebar.
+
+Open **More** to use the controls moved there. Use Tab and Shift+Tab to move
+between its buttons and inputs; Escape closes it and returns focus to More.
+Ctrl+F (Cmd+F on macOS) exposes and focuses Search wherever it is located. Resizing
+preserves your search text, input focus, and the controls' current state; More
+opens if a focused control moves there.
+
+The **Screenshot** menu stays within the PDF editor's visible area. Use Up/Down
+Arrow to move through its actions, Home/End to jump to the first/last action,
+Escape to close it and return to the Screenshot button, or Tab to leave the menu.
+
 | Button | Action |
 |--------|--------|
 | Prev / Next | Navigate between pages |
@@ -158,6 +179,7 @@ Simply open any `.pdf` file in VS Code. The PDF Toolkit will automatically displ
 | 🔍 Search | Search text within the PDF (Ctrl+F) |
 | 📑 Outline | Toggle document outline/TOC sidebar |
 | 📁 Extracted | Browse previously extracted PDFs |
+| More | Show controls moved out of the toolbar when space is limited |
 
 ### Keyboard Shortcuts
 
@@ -242,7 +264,8 @@ Use **Add to Copilot Chat** after export, or select the composite folder in
 **📁 Extracted** and choose **Add Selected Pages to Copilot Chat** to pick individual
 composite files. The **Attach Extracted Pages to Copilot Chat** command also supports
 page filtering: it attaches an entire composite if it contains any selected page.
-Creating a PNG only saves it locally; attaching it to chat is a separate action.
+Creating a PNG saves it to your configured screenshots folder; attaching it to
+chat is a separate action.
 
 ### Attach Selected Images to Copilot Chat
 
@@ -307,7 +330,7 @@ This extension uses:
 
 ## Privacy and Data Handling
 
-PDF Toolkit renders PDFs inside VS Code using bundled PDF.js and saves exported images to your configured screenshots folder. The default is `PDF-Screenshots/` under the first workspace folder, or beside the PDF when no workspace is open. It does not include telemetry or upload documents to a PDF Toolkit service.
+PDF Toolkit renders PDFs inside VS Code using bundled PDF.js and saves exported images to your configured screenshots folder. The default is `PDF-Screenshots/` under the first workspace folder, or beside the PDF when no workspace is open. PDF Toolkit does not implement telemetry collection or a document-upload service. Storage and access depend on your VS Code environment; remote or synchronized folders may transfer content through their associated services.
 
 **Add to Copilot Chat** and the selected-image action open Chat with image files attached; they do not submit a question automatically. Once you attach or send content, its handling is governed by VS Code, GitHub Copilot and your chosen AI service. Review the files you attach and your organisation's sharing policies.
 
