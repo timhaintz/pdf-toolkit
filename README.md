@@ -131,10 +131,18 @@ Simply open any `.pdf` file in VS Code. The PDF Toolkit will automatically displ
 
 ### Toolbar Controls
 
-The toolbar uses smaller controls in narrow editors and stays on one row. If it
-cannot fit, scroll it horizontally to reach the remaining controls; tabbing to a
-control also brings it into view. This works when you split the editor or open
-the Copilot sidebar.
+The toolbar uses smaller controls in narrow editors and stays on one row. As
+space runs out, rotation, Reset, dark mode and outline, then Search move into
+**More**. Page navigation, zoom, Screenshot, and Extracted stay in the toolbar.
+If even those controls cannot fit, scroll the toolbar horizontally; tabbing to
+an inline control also brings it into view. This works when you split the editor
+or open the Copilot sidebar.
+
+Open **More** to use the controls moved there. Use Tab and Shift+Tab to move
+between its buttons and inputs; Escape closes it and returns focus to More.
+Ctrl+F (Cmd+F on macOS) exposes and focuses Search wherever it is located. Resizing
+preserves your search text, input focus, and the controls' current state; More
+opens if a focused control moves there.
 
 The **Screenshot** menu stays within the PDF editor's visible area. Use Up/Down
 Arrow to move through its actions, Home/End to jump to the first/last action,
@@ -158,6 +166,7 @@ Escape to close it and return to the Screenshot button, or Tab to leave the menu
 | 🔍 Search | Search text within the PDF (Ctrl+F) |
 | 📑 Outline | Toggle document outline/TOC sidebar |
 | 📁 Extracted | Browse previously extracted PDFs |
+| More | Show controls moved out of the toolbar when space is limited |
 
 ### Keyboard Shortcuts
 

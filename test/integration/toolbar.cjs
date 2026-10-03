@@ -85,8 +85,15 @@ function browserChecks() {
         const search = byId('search-input');
         const page = byId('page-input');
         const zoom = byId('zoom-display');
-        check(!!viewport && !!toolbar && !!trigger && !!popup, 'Production toolbar elements are present');
-        viewport.addEventListener('focusin', event => focusEvents.push({ id: event.target.id,
+        const more = byId('toolbar-more-btn');
+        const overflow = byId('toolbar-overflow');
+        const secondaryPriority = ['rotation-controls', 'reset-controls', 'appearance-controls', 'search-controls'];
+        const secondaryDisplayOrder = ['reset-controls', 'rotation-controls', 'appearance-controls', 'search-controls'];
+        const coreGroups = ['page-controls', 'zoom-controls', 'screenshot-controls', 'extracted-controls'];
+        const originalGroups = new Map([...coreGroups, ...secondaryPriority].map(id => [id, byId(id)]));
+        check(!!viewport && !!toolbar && !!trigger && !!popup && !!more && !!overflow, 'Production responsive toolbar and More controls are present');
+        check(overflow.getAttribute('role') === 'group', 'More uses a group for its mixed buttons and search input');
+        doc.addEventListener('focusin', event => focusEvents.push({ id: event.target.id,
             trusted: event.isTrusted, documentFocused: doc.hasFocus(), scrollLeft: viewport.scrollLeft }));
         const key = (target, value, options = {}) => {
             const event = new win.KeyboardEvent('keydown', { key: value, bubbles: true, cancelable: true, ...options });
@@ -124,12 +131,54 @@ function browserChecks() {
             const clip = rect(viewport);
             return target.width > 0 && target.left >= clip.left - 1 && target.right <= clip.right + 1;
         };
+        const visibleInOverflow = element => {
+            const target = rect(element);
+            const clip = rect(overflow);
+            return target.width > 0 && target.height > 0 && target.left >= clip.left - 1 && target.right <= clip.right + 1 &&
+                target.top >= clip.top - 1 && target.bottom <= clip.bottom + 1;
+        };
+        const assertSelectedMatchVisible = (pageNumber, label) => {
+            const selected = [...doc.querySelectorAll('.textLayer .highlight.selected')];
+            const clip = rect(byId('pdf-container'));
+            check(selected.length > 0 && selected.every(element => byId(`page-${pageNumber}`).contains(element)),
+                `${label}: the selected match belongs to page ${pageNumber}`);
+            const bounds = rect(selected[0]);
+            check(bounds.top >= clip.top - 1 && bounds.bottom <= clip.bottom + 1,
+                `${label}: matched text is visible in the actual PDF viewport`,
+                { match: bounds.toJSON(), container: clip.toJSON(), pageIndicator: page.value });
+        };
+        const closeMore = async () => {
+            if (more.getAttribute('aria-expanded') === 'true') {
+                more.click();
+                await settle();
+            }
+        };
+        const openMoreFor = async element => {
+            if (overflow.contains(element) && more.getAttribute('aria-expanded') !== 'true') {
+                more.click();
+                await settle();
+            }
+        };
+        const assertMore = label => {
+            const bounds = rect(overflow);
+            check(more.getAttribute('aria-expanded') === 'true' && bounds.width > 0 && bounds.height > 0,
+                `${label}: More announces and displays its expanded state`);
+            check(bounds.left >= -1 && bounds.right <= win.innerWidth + 1 && bounds.top >= -1 && bounds.bottom <= win.innerHeight + 1,
+                `${label}: More panel fits its viewport`);
+            const controls = [...overflow.querySelectorAll('button,input')].filter(element => rect(element).width > 0);
+            for (const element of [controls[0], controls.at(-1)]) {
+                const bounds = rect(element);
+                check(element.contains(doc.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2)),
+                    `${label}: ${element.id} hit-tests inside More`);
+            }
+        };
         const menuItems = () => [...popup.querySelectorAll('button')].filter(item => !item.disabled);
         const scrollWithVisibleTrigger = async label => {
             const previousScroll = viewport.scrollLeft;
             const anchor = rect(trigger);
             const clip = rect(viewport);
             const maximum = viewport.scrollWidth - viewport.clientWidth;
+            const pinnedMore = more.hidden ? undefined : rect(more);
             let delta = Math.min(24, maximum - previousScroll, Math.max(0, anchor.left - clip.left - 2));
             if (delta < 1) delta = -Math.min(24, previousScroll, Math.max(0, clip.right - anchor.right - 2));
             check(Math.abs(delta) >= 1, `${label}: the toolbar has room to scroll with a visible Screenshot trigger`);
@@ -137,6 +186,12 @@ function browserChecks() {
             await settle();
             check(Math.abs(viewport.scrollLeft - previousScroll) >= 1, `${label}: horizontal scrolling moves while Screenshot is open`);
             check(visibleInToolbar(trigger), `${label}: scrolling keeps the Screenshot trigger visible`);
+            if (pinnedMore) {
+                const current = rect(more);
+                check(Math.abs(current.left - pinnedMore.left) < 1 && Math.abs(current.right - pinnedMore.right) < 1 &&
+                    more.contains(doc.elementFromPoint(current.left + current.width / 2, current.top + current.height / 2)),
+                    `${label}: More stays pinned and clickable during horizontal toolbar scrolling`);
+            }
         };
         const assertPopup = label => {
             const bounds = rect(popup);
@@ -161,22 +216,56 @@ function browserChecks() {
         const originalZoom = zoom;
         const expectedZoom = zoom.value;
 
-        for (const width of [1600, 900, 600, 480, 320, 768, 1600]) {
+        for (const width of [1600, 1200, 900, 768, 600, 480, 360, 320, 768, 1600]) {
             frame.style.width = `${width}px`;
             await waitFor(() => win.innerWidth === width, `viewport resize to ${width}px`);
             await settle();
+            await closeMore();
             check(doc.documentElement.scrollWidth <= width + 1, `${width}px: the document does not overflow horizontally`);
             check(byId('search-input') === originalSearch && byId('page-input') === originalPage && byId('zoom-display') === originalZoom,
                 `${width}px: resizing preserves the existing inputs`);
             check(search.value === 'PDF Toolkit' && byId('search-results').textContent === '1 of 5', `${width}px: resizing preserves search text and results`);
             check(page.value === '3' && zoom.value === expectedZoom, `${width}px: resizing preserves page and zoom state`);
+            for (const id of coreGroups) {
+                check(byId(id) === originalGroups.get(id) && byId(id).parentElement === toolbar,
+                    `${width}px: core ${id} remains in the toolbar`);
+            }
+            const removed = secondaryPriority.filter(id => byId(id).parentElement === overflow);
+            check(JSON.stringify(removed) === JSON.stringify(secondaryPriority.slice(0, removed.length)),
+                `${width}px: secondary controls move in removal priority`, { removed, secondaryPriority });
+            check(secondaryPriority.every(id => byId(id) === originalGroups.get(id) &&
+                (byId(id).parentElement === toolbar || byId(id).parentElement === overflow)),
+                `${width}px: relocation preserves every secondary control group`);
+            const displayedOverflow = [...overflow.children].map(element => element.id).filter(id => secondaryPriority.includes(id));
+            check(JSON.stringify(displayedOverflow) === JSON.stringify(secondaryDisplayOrder.filter(id => removed.includes(id))),
+                `${width}px: More preserves the familiar toolbar control order`, { displayedOverflow });
+            check(more.hidden === (removed.length === 0), `${width}px: More appears exactly when secondary controls overflow`);
+            if (width === 1600) check(removed.length === 0, `${width}px: a wide toolbar restores all secondary controls inline`);
+            if (width === 320) check(removed.length === 4, `${width}px: all secondary controls move into More before core scrolling`);
+            if (removed.length) {
+                const bounds = rect(more);
+                check(more.parentElement === viewport.parentElement && bounds.left >= -1 && bounds.right <= width + 1 &&
+                    more.contains(doc.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2)),
+                    `${width}px: More stays pinned and clickable outside the toolbar scroller`);
+                more.click();
+                await settle();
+                assertMore(`${width}px`);
+                const firstControl = overflow.querySelector('button,input');
+                firstControl.focus();
+                key(firstControl, 'Escape');
+                check(more.getAttribute('aria-expanded') === 'false' && doc.activeElement === more,
+                    `${width}px: Escape closes More and restores its trigger focus`);
+            }
             const centers = ['prev-page', 'page-input', 'next-page', 'zoom-display', 'search-input', 'screenshot-btn', 'browse-extracted-btn']
+                .filter(id => toolbar.contains(byId(id)))
                 .map(id => { const bounds = rect(byId(id)); return bounds.top + bounds.height / 2; });
-            check(Math.max(...centers) - Math.min(...centers) < 2, `${width}px: all toolbar controls stay on one row`);
+            check(Math.max(...centers) - Math.min(...centers) < 2, `${width}px: inline toolbar controls stay on one row`);
             if (width === 1600) check(viewport.scrollWidth <= viewport.clientWidth + 1, `${width}px: a wide toolbar does not require scrolling`);
             if (width === 320) check(viewport.scrollWidth > viewport.clientWidth, `${width}px: narrow panes retain horizontal scrolling`);
 
             for (const id of ['prev-page', 'search-input', 'screenshot-btn', 'browse-extracted-btn']) {
+                if (!overflow.contains(byId(id))) await closeMore();
+                await openMoreFor(byId(id));
                 // Focus the nested browsing context itself. In an inactive
                 // frame Chromium can set activeElement without delivering
                 // focusin, which would bypass the actual toolbar handler.
@@ -189,9 +278,11 @@ function browserChecks() {
                 await settle();
                 const after = focusMetrics(byId(id));
                 focusSamples.push({ width, before, after, events: focusEvents.slice(eventStart) });
-                check(doc.activeElement === byId(id) && visibleInToolbar(byId(id)),
+                const visible = overflow.contains(byId(id)) ? visibleInOverflow(byId(id)) : visibleInToolbar(byId(id));
+                check(doc.activeElement === byId(id) && visible,
                     `${width}px: focus handler reveals ${id}`, { before, after, events: focusEvents.slice(eventStart) });
             }
+            await closeMore();
             trigger.focus();
             await settle();
             trigger.click();
@@ -227,9 +318,11 @@ function browserChecks() {
             key(doc.body, 'f', { ctrlKey: true });
             deliverInactiveFocusEvent(search, searchEventStart, 'Ctrl+F handler');
             await settle();
-            check(doc.activeElement === search && visibleInToolbar(search), `${width}px: Ctrl+F handler reveals and focuses search`);
+            check(doc.activeElement === search && (overflow.contains(search) ? visibleInOverflow(search) : visibleInToolbar(search)),
+                `${width}px: Ctrl+F handler reveals and focuses search`);
+            if (overflow.contains(search)) check(more.getAttribute('aria-expanded') === 'true', `${width}px: Ctrl+F opens More for relocated search`);
             samples.push({ width, toolbarWidth: toolbar.scrollWidth, viewportWidth: viewport.clientWidth,
-                scrollLeft: viewport.scrollLeft, page: page.value, query: search.value });
+                scrollLeft: viewport.scrollLeft, page: page.value, query: search.value, overflowGroups: removed });
         }
 
         // Verify the actual action listeners still send their existing host
@@ -247,6 +340,200 @@ function browserChecks() {
         byId('browse-extracted-btn').click();
         await waitFor(() => messages.slice(beforeBrowse).some(message => message.type === 'browseExtracted'), 'Browse Extracted host message');
         check(true, 'Browse Extracted retains its host action');
+
+        // Relocated controls must continue to operate on the same PDF and keep
+        // their state when restored to the inline toolbar.
+        frame.style.width = '320px';
+        await waitFor(() => win.innerWidth === 320, 'More action test width');
+        await settle();
+        await openMoreFor(byId('rotate-cw'));
+        byId('rotate-cw').click();
+        check([...doc.querySelectorAll('.page-wrapper')].every(element => element.classList.contains('rotated-90')),
+            'Rotate Clockwise operates from More on every rendered PDF page');
+        await openMoreFor(byId('dark-mode'));
+        byId('dark-mode').click();
+        check(byId('pdf-container').classList.contains('dark-mode') && byId('dark-mode').title.includes('Light') &&
+            byId('dark-mode').getAttribute('aria-pressed') === 'true',
+            'Dark Mode operates from More and updates its existing button state');
+        frame.style.width = '1600px';
+        await waitFor(() => win.innerWidth === 1600, 'restored rotation and appearance controls');
+        await settle();
+        check([...doc.querySelectorAll('.page-wrapper')].every(element => element.classList.contains('rotated-90')) &&
+            byId('pdf-container').classList.contains('dark-mode'), 'Rotation and dark appearance persist when controls return inline');
+        check(byId('rotation-controls') === originalGroups.get('rotation-controls') &&
+            byId('appearance-controls') === originalGroups.get('appearance-controls'), 'Action controls retain their DOM identity after More use');
+        byId('rotate-ccw').click();
+        byId('dark-mode').click();
+        check(!doc.querySelector('.rotated-90') && !byId('pdf-container').classList.contains('dark-mode') &&
+            byId('dark-mode').getAttribute('aria-pressed') === 'false',
+            'Restored inline rotation and appearance controls retain their action listeners');
+
+        // Search is a form control in a group, so panel keyboard handling must
+        // leave native editing keys available and preserve its selection.
+        frame.style.width = '320px';
+        await waitFor(() => win.innerWidth === 320, 'More input keyboard test width');
+        await settle();
+        const lastPageBeforeZoom = byId('page-5');
+        zoom.focus();
+        zoom.value = '125%';
+        key(zoom, 'Enter');
+        await waitFor(() => byId('page-5') !== lastPageBeforeZoom &&
+            doc.querySelector('#page-5 .textLayer')?.childElementCount > 0, '125 percent PDF rerender');
+        check(zoom.value === '125%', 'Core zoom remains operable while secondary controls overflow');
+        await openMoreFor(byId('zoom-reset'));
+        const lastPageBeforeReset = byId('page-5');
+        byId('zoom-reset').click();
+        await waitFor(() => byId('page-5') !== lastPageBeforeReset &&
+            doc.querySelector('#page-5 .textLayer')?.childElementCount > 0, 'More Reset Zoom PDF rerender');
+        check(zoom.value === expectedZoom, 'Reset Zoom operates from More and rerenders the actual PDF at its default scale');
+        await openMoreFor(byId('toggle-outline'));
+        byId('toggle-outline').click();
+        check(byId('outline-panel').classList.contains('show') && byId('toggle-outline').getAttribute('aria-expanded') === 'true',
+            'Outline operates from More and announces its expanded state');
+        byId('toggle-outline').click();
+        check(!byId('outline-panel').classList.contains('show') && byId('toggle-outline').getAttribute('aria-expanded') === 'false',
+            'Outline can be closed again from the same More control');
+        await openMoreFor(search);
+        search.dispatchEvent(new win.Event('input', { bubbles: true }));
+        await waitFor(() => doc.querySelector('#page-5 .textLayer .highlight'), 'refreshed search highlights after zoom rerender');
+        byId('search-next').click();
+        check(byId('search-results').textContent === '2 of 5', 'Search Next retains its existing action in More');
+        check(page.value === '2', 'Search Next updates the page indicator to its match before smooth scrolling');
+        await pause(900);
+        // The existing scroll tracker reports the top visible page; centering
+        // a match near a page heading can leave the previous page at the top.
+        assertSelectedMatchVisible(2, 'Search Next from More');
+        byId('search-prev').click();
+        check(byId('search-results').textContent === '1 of 5', 'Search Previous retains its existing action in More');
+        check(page.value === '1', 'Search Previous updates the page indicator to its match before smooth scrolling');
+        await pause(900);
+        assertSelectedMatchVisible(1, 'Search Previous from More');
+        page.value = '3';
+        page.dispatchEvent(new win.Event('change', { bubbles: true }));
+        await pause(900);
+        await openMoreFor(search);
+        search.focus();
+        search.setSelectionRange(2, 7);
+        const pageBeforeEditing = page.value;
+        for (const value of ['Home', 'End', 'ArrowLeft', 'ArrowRight']) {
+            const event = key(search, value);
+            check(!event.defaultPrevented && doc.activeElement === search && page.value === pageBeforeEditing &&
+                search.selectionStart === 2 && search.selectionEnd === 7,
+                `More input ${value} remains available to native text editing without PDF navigation`);
+        }
+        const tabInForm = key(search, 'Tab');
+        check(!tabInForm.defaultPrevented && more.getAttribute('aria-expanded') === 'true',
+            'Tab inside the More form remains available to native control traversal');
+        await closeMore();
+
+        // The input event's existing 300ms debounce is intentionally still
+        // pending when the focused search group moves into More.
+        frame.style.width = '1600px';
+        await waitFor(() => win.innerWidth === 1600, 'inline search before pending query');
+        await settle();
+        search.focus();
+        search.value = 'PDF Toolkit test page 4';
+        search.setSelectionRange(4, 11);
+        search.dispatchEvent(new win.Event('input', { bubbles: true }));
+        frame.style.width = '320px';
+        await waitFor(() => win.innerWidth === 320, 'focused search moving into More');
+        await settle();
+        check(byId('search-input') === originalSearch && overflow.contains(search) && doc.activeElement === search &&
+            search.value === 'PDF Toolkit test page 4' && search.selectionStart === 4 && search.selectionEnd === 11,
+            'Focused search moving into More preserves DOM identity, query and caret selection');
+        check(more.getAttribute('aria-expanded') === 'true' && visibleInOverflow(search),
+            'Moving a focused search into overflow opens More and reveals the input');
+        await waitFor(() => byId('search-results').textContent === '1 of 1', 'pending search debounce after relocation');
+        await pause(900);
+        assertSelectedMatchVisible(4, 'Pending search after relocation');
+        const settledPage = page.value;
+        frame.style.width = '1600px';
+        await waitFor(() => win.innerWidth === 1600, 'focused search returning inline');
+        await settle();
+        check(toolbar.contains(search) && doc.activeElement === search && search.selectionStart === 4 && search.selectionEnd === 11 &&
+            search.value === 'PDF Toolkit test page 4' && byId('search-results').textContent === '1 of 1' && page.value === settledPage && zoom.value === expectedZoom,
+            'Returning focused search inline preserves caret, query, results, page and zoom');
+
+        // Observe the actual node identities. An unnecessary remove/reinsert
+        // can end an OS composition even if the final parent and caret look
+        // unchanged, and inactive test windows may suppress its focus events.
+        frame.style.width = '320px';
+        await waitFor(() => win.innerWidth === 320, 'stable overflow result-update width');
+        await settle();
+        const searchGroup = originalGroups.get('search-controls');
+        const searchMoves = [];
+        const movementObserver = new win.MutationObserver(records => {
+            for (const record of records) {
+                if ([...record.removedNodes].some(node => node === searchGroup || node.contains(search))) {
+                    searchMoves.push({ from: record.target.id, width: win.innerWidth });
+                }
+            }
+        });
+        movementObserver.observe(doc.body, { childList: true, subtree: true });
+        try {
+            const originalParent = searchGroup.parentElement;
+            check(originalParent === overflow && doc.activeElement === search,
+                'The result-update regression starts with focused search already in More');
+            const resultBefore = byId('search-results').textContent;
+            const focusBeforeResult = focusEvents.length;
+            byId('search-results').textContent = `${resultBefore} `;
+            await settle();
+            byId('search-results').textContent = resultBefore;
+            await settle();
+            check(searchMoves.length === 0 && searchGroup.parentElement === originalParent && doc.activeElement === search &&
+                search.selectionStart === 4 && search.selectionEnd === 11,
+                'Result updates without a placement change leave the focused search attached with its caret intact', { searchMoves });
+            check(!focusEvents.slice(focusBeforeResult).some(event => event.id === search.id),
+                'Result updates without a placement change do not refocus the search input');
+
+            frame.style.width = '1600px';
+            await waitFor(() => win.innerWidth === 1600, 'inline composition starting width');
+            await settle();
+            const compositionParent = searchGroup.parentElement;
+            check(compositionParent === toolbar && doc.activeElement === search,
+                'The composition regression starts with focused inline search');
+            const movesBeforeComposition = searchMoves.length;
+            const focusBeforeComposition = focusEvents.length;
+            search.dispatchEvent(new win.CompositionEvent('compositionstart', { bubbles: true, data: '2' }));
+            search.value = 'PDF Toolkit test page 2';
+            search.setSelectionRange(5, 13);
+            search.dispatchEvent(new win.InputEvent('input', { bubbles: true, isComposing: true,
+                inputType: 'insertCompositionText', data: '2' }));
+            frame.style.width = '320px';
+            await waitFor(() => win.innerWidth === 320, 'resize during search composition');
+            await settle();
+            await pause(350); // Also exercise the real pending search-result update.
+            check(byId('search-results').textContent === '1 of 1' && searchMoves.length === movesBeforeComposition &&
+                searchGroup.parentElement === compositionParent && doc.activeElement === search &&
+                search.value === 'PDF Toolkit test page 2' && search.selectionStart === 5 && search.selectionEnd === 13,
+                'Composing search defers relocation through narrow resize and pending result updates without losing query or caret',
+                { searchMoves, parent: searchGroup.parentElement.id });
+            check(!focusEvents.slice(focusBeforeComposition).some(event => event.id === search.id),
+                'Deferred composition layout does not refocus its input');
+            search.dispatchEvent(new win.CompositionEvent('compositionend', { bubbles: true, data: '2' }));
+            await settle();
+            check(secondaryPriority.every(id => byId(id).parentElement === overflow) && overflow.contains(search) &&
+                more.getAttribute('aria-expanded') === 'true' && doc.activeElement === search &&
+                search.value === 'PDF Toolkit test page 2' && search.selectionStart === 5 && search.selectionEnd === 13,
+                'Composition end applies normal overflow priority while preserving the focused query and caret');
+            await pause(900);
+            assertSelectedMatchVisible(2, 'Composing query after composition end');
+            const queryBeforeEscape = search.value;
+            const resultsBeforeEscape = byId('search-results').textContent;
+            key(search, 'Escape');
+            check(more.getAttribute('aria-expanded') === 'false' && doc.activeElement === more &&
+                search.value === queryBeforeEscape && byId('search-results').textContent === resultsBeforeEscape,
+                'Escape from More search closes the panel and returns More focus while preserving query and results');
+            frame.style.width = '1600px';
+            await waitFor(() => win.innerWidth === 1600, 'inline Escape behavior width');
+            await settle();
+            search.focus();
+            key(search, 'Escape');
+            check(search.value === '' && byId('search-results').textContent === '',
+                'Escape in inline search retains its existing query-clearing behavior');
+        } finally {
+            movementObserver.disconnect();
+        }
 
         // A short editor viewport makes the popup itself scroll. Repositioning
         // it must retain its focused last item, rather than reset that item out
