@@ -470,6 +470,32 @@ function browserChecks() {
             search.value === 'PDF Toolkit test page 4' && byId('search-results').textContent === '1 of 1' && page.value === settledPage && zoom.value === expectedZoom,
             'Returning focused search inline preserves caret, query, results, page and zoom');
 
+        // The visible native split-divider test exposed a Chromium case where
+        // moving an input retains focus but selects its whole value. Model that
+        // browser boundary here because inactive fixture frames normally blur.
+        const insertBefore = overflow.insertBefore;
+        let focusPreservedMoves = 0;
+        overflow.insertBefore = function (element, next) {
+            const result = insertBefore.call(this, element, next);
+            if (element.contains(search)) {
+                search.focus({ preventScroll: true });
+                search.select();
+                focusPreservedMoves++;
+            }
+            return result;
+        };
+        try {
+            frame.style.width = '320px';
+            await waitFor(() => win.innerWidth === 320, 'focus-preserving search relocation');
+            await settle();
+            check(focusPreservedMoves === 1 && doc.activeElement === search && overflow.contains(search),
+                'Focus-preserved relocation model exercises the real search group move');
+            check(search.selectionStart === 4 && search.selectionEnd === 11 && search.value === 'PDF Toolkit test page 4',
+                'Relocation restores the saved range when the browser retains input focus but changes selection');
+        } finally {
+            overflow.insertBefore = insertBefore;
+        }
+
         // Observe the actual node identities. An unnecessary remove/reinsert
         // can end an OS composition even if the final parent and caret look
         // unchanged, and inactive test windows may suppress its focus events.

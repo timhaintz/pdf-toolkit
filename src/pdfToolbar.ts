@@ -196,13 +196,18 @@ export function setupPdfToolbar(): { closeScreenshot: () => void; focusSearch: (
             focusControl(document.getElementById('browse-extracted-btn')!);
         } else if (active && document.activeElement !== active) {
             active.focus({ preventScroll: true });
-            if (selection) input!.setSelectionRange(selection.start, selection.end, selection.direction ?? undefined);
         }
         if (active && (toolbar.contains(active) || overflow.contains(active))) {
             revealControl(active);
         }
         positionMenu();
         positionPopup(overflow, more);
+        // Reparenting can change a native input's selection while retaining activeElement.
+        // Restore the captured range in both cases, after all layout and focus work.
+        if (input && selection && document.activeElement === input &&
+            (input.selectionStart !== selection.start || input.selectionEnd !== selection.end || input.selectionDirection !== selection.direction)) {
+            input.setSelectionRange(selection.start, selection.end, selection.direction ?? undefined);
+        }
     }
 
     function scheduleLayout(): void {

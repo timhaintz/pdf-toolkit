@@ -365,30 +365,37 @@ testing of an installed VSIX or visual testing on a Windows desktop.
 ### Issue #5 priority overflow QA: 3 October 2026
 
 The candidate `artifacts/pdf-toolkit-issue-5.vsix` is a test package declaring
-2.3.0, not a Marketplace release. The reviewed candidate is 11,677,598 bytes,
-SHA256 `2721d16e3fc992d09b1acebcde6272e88ca503352755ad596bc7f433963f2b28`.
+2.3.0, not a Marketplace release. The final selection-fix candidate is 11,677,704
+bytes, SHA256 `9bfa801a03d0d3d9a7dd3afbaa1b467aba22427f18054ee007045054861ff1f5`.
 All 392 compiled/PDF.js payloads match the source QA baseline; the previously
 released 2.3.0 package remains unchanged. The archive review is saved as
-`package-identity-reviewed.json` in the ignored issue QA directory. The earlier
+`package-identity-selection-final.json` in the ignored issue QA directory. The
+earlier 412-assertion candidate was 11,677,598 bytes, SHA256
+`2721d16e3fc992d09b1acebcde6272e88ca503352755ad596bc7f433963f2b28`,
+reviewed in `package-identity-reviewed.json`. The initial
 407-assertion candidate was 11,677,166 bytes, SHA256
 `2967deb9e6d466a81d956e700d0cb3bd163b948aa4accefb6a9d9e9c9deb9876`;
-its earlier results and evidence remain part of the QA history.
+these earlier results and evidence remain part of the QA history.
 
 On macOS arm64, lint and all 64 Node tests passed. Source and installed-package
-integration passed on VS Code 1.140.0, with **412 toolbar assertions per mode**
+integration passed on VS Code 1.140.0, with **414 toolbar assertions per mode**
 at 1600, 1200, 900, 768, 600, 480, 360, 320, 768, and 1600 px. They verify priority
 and visual order, pinned More, original DOM identity, focus and caret preservation,
 pending search results, composition deferral, Escape behavior, relocated actions,
 popup bounds, and the existing Screenshot menu. PDF.js/JPEG 2000 rendering,
 screenshots, grid/vertical/grouped composites, and multiple PDFs also passed.
-The isolated runs were `development-LZrwlL` and `packaged-j81cPg`; each recorded
-50 explicit `focusin` handler events for inactive frames, distinguished from
-native keyboard traversal as in the Issue #4 record.
+The final isolated runs were `development-SYLk7Q` and `packaged-eHZ1iV`, with
+zero explicit inactive-frame `focusin` events. Earlier 412-assertion runs
+`development-LZrwlL` and `packaged-j81cPg` each recorded 50 such handler events;
+they remain distinguished from native keyboard traversal as in the Issue #4 record.
 
-Minimum-version source integration passed on VS Code 1.96.0 with 411 toolbar
-assertions in `development-hVEVVv`, including the completed-query composition
-checks; its log is `minimum-composition-final.log`. That run preceded the one
-additional composing-Escape regression assertion in the 412-assertion suite.
+Minimum-version source integration passed on VS Code 1.96.0 with all 414 toolbar
+assertions in `development-OU17O4`, including the final selection-restoration,
+completed-query composition, and composing-Escape checks; its log is
+`minimum-selection-final.log`. No explicit inactive-frame `focusin` events were
+needed. The earlier 412-assertion run `development-5EL0WM` remains recorded in
+`minimum-reviewed.log`, and the 411-assertion run `development-hVEVVv` in
+`minimum-composition-final.log`.
 The composition events exercise production handlers; they do not establish an
 OS input-method test. Partial IME input now defers searches until composition
 ends, then searches the completed query. Focus visibility adjusts the control's
@@ -408,9 +415,24 @@ Earlier visible source-host checks in a temporary VS Code 1.140.0 profile passed
   opened its visible menu. More remained pinned. Light, dark, and high-contrast
   themes, including an enlarged VS Code interface, kept controls and popups readable.
 
+The final visible source-host repeat in the temporary **Temp 3** profile passed
+two More → inline → More resize cycles, retaining the selected first `P`, query
+`page 4`, result count `1 of 1`, page indicator `3`, and 100% zoom. Native Tab and
+Shift+Tab exited More; Space and Enter opened it. Focus revealed Screenshot in
+the narrow scroller, and End/Escape worked in its menu.
+
+That repeat first caught a browser-boundary defect: focus stayed on Search, but
+resizing selected the whole query instead of preserving its selection. A bounded
+selection-restoration fix was then applied and verified visibly and by regression
+checks that model the browser's boundary behavior. The failed
+`native-final-narrow.txt`/PNG evidence is retained as a failure, not a final pass.
+The corrected evidence is `native-selection-fixed-wide.txt`,
+`native-selection-fixed-narrow.txt` with its PNG, and
+`native-final-keyboard.txt` with its PNG. These checks do not establish an OS
+input-method test.
+
 Evidence is under `.vscode-test/manual-qa/2026-10-03/issue-5/`. Native integration
-is separate from the visible source-host baseline above. The baseline does not
-claim a final visible repeat after the composition and scroll-container changes,
-manual installed-package UI testing, or Windows desktop/Copilot testing. Test
+is separate from the visible source-host checks above. This record does not claim
+manual installed-package UI testing or Windows desktop/Copilot testing. Test
 profiles now disable editor updates in disposable User settings, so minimum-version
 test copies remain fixed and do not prompt for a macOS updater helper.

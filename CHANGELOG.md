@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Keep PDF toolbar controls usable in narrow and split editors with compact sizing and horizontal scrolling. Prevent the Screenshot menu from being clipped, and support keyboard menu navigation and focus visibility.
+- Preserve search text selection when controls move during resizing, wait for completed text composition, and keep matched PDF text visible while toolbar focus changes.
 
 ## [2.3.0] - 2026-10-03
 
