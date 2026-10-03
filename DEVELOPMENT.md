@@ -182,7 +182,7 @@ the measured control widths, rather than a fixed viewport breakpoint alone.
 | More keyboard access | Open More with mouse, Enter, or Space. Use Tab and Shift+Tab through its mixed buttons and inputs, including both ends of the panel, then press Escape. | Native focus navigation reaches every visible control without treating the panel as an arrow-key action menu or trapping focus. At a panel boundary, Tab/Shift+Tab exits through More's toolbar tab position. Escape closes the panel and returns focus to More. |
 | Search shortcut and controls | Move Search into More, close More, and press Ctrl+F or Cmd+F on macOS. Enter a query, navigate matches, and edit the text using selection and caret keys. | More opens with Search focused. Match counts and previous/next/close search behave as they do inline; text editing uses normal input behavior. |
 | Resize with active input | Type a query, select a substring or place the caret in its middle, then resize until Search changes location. Repeat with More open and closed, and widen until all controls fit again. | The same search value, match state, selection/caret, and input focus are preserved. More opens if the focused control moves into it; widening restores the focused input inline. Moving controls does not duplicate them or reset PDF state. |
-| Composition and search Escape | While composing text, resize the editor; also update results without changing width. Press Escape in overflowed Search and then repeat inline. | Live Search stays attached during composition and moves only after composition ends. Result updates alone do not reparent or refocus it. Escape in More preserves the query and closes More; inline Escape retains its existing clear-search behavior. |
+| Composition and search Escape | While composing text, resize the editor and press Escape; complete composition, then update results without changing width. Press Escape in overflowed Search and repeat inline. | Search stays attached during composition and moves only after composition ends. Partial input does not trigger searches; the completed query is searched after composition ends. Escape during composition leaves the input and panel intact. Result updates alone do not reparent or refocus Search. Outside composition, Escape in More preserves the query and closes More; inline Escape retains its existing clear-search behavior. |
 | Removing the More button | Focus More and widen the editor until all groups fit inline. | More disappears, and focus moves to Extracted rather than being lost on a hidden control. |
 | Overflowed actions | Activate rotation in both directions, Reset, dark mode, and outline from More. Repeat after those controls return inline. | Each action fires once and targets the active PDF. Its result matches the inline action, with state retained through resizing. |
 | Popup transitions | Alternate More and Screenshot; click outside each popup and resize while open. Repeat in a short editor and with the Copilot sidebar open. | Popups remain visible within the PDF editor, close as appropriate without overlaying each other, and preserve accessible focus. |
@@ -365,23 +365,38 @@ testing of an installed VSIX or visual testing on a Windows desktop.
 ### Issue #5 priority overflow QA: 3 October 2026
 
 The candidate `artifacts/pdf-toolkit-issue-5.vsix` is a test package declaring
-2.3.0, not a Marketplace release. It is 11,677,166 bytes, SHA256
-`2967deb9e6d466a81d956e700d0cb3bd163b948aa4accefb6a9d9e9c9deb9876`.
+2.3.0, not a Marketplace release. The reviewed candidate is 11,677,598 bytes,
+SHA256 `2721d16e3fc992d09b1acebcde6272e88ca503352755ad596bc7f433963f2b28`.
 All 392 compiled/PDF.js payloads match the source QA baseline; the previously
-released 2.3.0 package remains unchanged.
+released 2.3.0 package remains unchanged. The archive review is saved as
+`package-identity-reviewed.json` in the ignored issue QA directory. The earlier
+407-assertion candidate was 11,677,166 bytes, SHA256
+`2967deb9e6d466a81d956e700d0cb3bd163b948aa4accefb6a9d9e9c9deb9876`;
+its earlier results and evidence remain part of the QA history.
 
 On macOS arm64, lint and all 64 Node tests passed. Source and installed-package
-integration passed on VS Code 1.140.0, with **407 toolbar assertions per mode**
+integration passed on VS Code 1.140.0, with **412 toolbar assertions per mode**
 at 1600, 1200, 900, 768, 600, 480, 360, 320, 768, and 1600 px. They verify priority
 and visual order, pinned More, original DOM identity, focus and caret preservation,
 pending search results, composition deferral, Escape behavior, relocated actions,
 popup bounds, and the existing Screenshot menu. PDF.js/JPEG 2000 rendering,
 screenshots, grid/vertical/grouped composites, and multiple PDFs also passed.
-The composition events exercise production handlers; they do not establish an
-OS input-method test. Search checks verify selected matched text and its visibility:
-the existing page counter follows the top visible page after smooth scrolling.
+The isolated runs were `development-LZrwlL` and `packaged-j81cPg`; each recorded
+50 explicit `focusin` handler events for inactive frames, distinguished from
+native keyboard traversal as in the Issue #4 record.
 
-Visible source-host checks in a temporary VS Code 1.140.0 profile passed:
+Minimum-version source integration passed on VS Code 1.96.0 with 411 toolbar
+assertions in `development-hVEVVv`, including the completed-query composition
+checks; its log is `minimum-composition-final.log`. That run preceded the one
+additional composing-Escape regression assertion in the 412-assertion suite.
+The composition events exercise production handlers; they do not establish an
+OS input-method test. Partial IME input now defers searches until composition
+ends, then searches the completed query. Focus visibility adjusts the control's
+own scroll container without interrupting the PDF's match navigation. Search
+checks verify selected matched text and its visibility: the existing page counter
+follows the top visible page after smooth scrolling.
+
+Earlier visible source-host checks in a temporary VS Code 1.140.0 profile passed:
 
 - Enter and Space open More; native Tab traverses its buttons, and Tab/Shift+Tab
   leave through its toolbar position without trapping focus. Escape restores More.
@@ -394,7 +409,8 @@ Visible source-host checks in a temporary VS Code 1.140.0 profile passed:
   themes, including an enlarged VS Code interface, kept controls and popups readable.
 
 Evidence is under `.vscode-test/manual-qa/2026-10-03/issue-5/`. Native integration
-is separate from the visible source-host checks; this record does not claim manual
-installed-package UI testing or Windows desktop/Copilot testing. Test profiles now
-disable editor updates in disposable User settings, so minimum-version test copies
-remain fixed and do not prompt for a macOS updater helper.
+is separate from the visible source-host baseline above. The baseline does not
+claim a final visible repeat after the composition and scroll-container changes,
+manual installed-package UI testing, or Windows desktop/Copilot testing. Test
+profiles now disable editor updates in disposable User settings, so minimum-version
+test copies remain fixed and do not prompt for a macOS updater helper.

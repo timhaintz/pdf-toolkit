@@ -2422,16 +2422,32 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         // Search event listeners
         const searchInput = document.getElementById('search-input');
         let searchTimeout;
+        let searchComposing = false;
 
-        searchInput.addEventListener('input', () => {
+        function scheduleSearch() {
             clearTimeout(searchTimeout);
             searchTimeout = setTimeout(() => {
                 performSearch(searchInput.value);
             }, 300); // Debounce search
+        }
+
+        searchInput.addEventListener('compositionstart', () => {
+            searchComposing = true;
+            clearTimeout(searchTimeout);
+        });
+        searchInput.addEventListener('compositionend', () => {
+            searchComposing = false;
+            // A final input event is not guaranteed; explicitly search the committed query.
+            scheduleSearch();
+        });
+        searchInput.addEventListener('input', (e) => {
+            clearTimeout(searchTimeout);
+            if (searchComposing || e.isComposing) return;
+            scheduleSearch();
         });
 
         searchInput.addEventListener('keydown', (e) => {
-            if (e.isComposing) return;
+            if (searchComposing || e.isComposing) return;
             if (e.key === 'Enter') {
                 e.preventDefault();
                 if (e.shiftKey) {

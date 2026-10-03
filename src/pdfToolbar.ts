@@ -49,17 +49,45 @@ export function setupPdfToolbar(): { closeScreenshot: () => void; focusSearch: (
         return copy;
     }
 
+    function revealControl(element: HTMLElement): void {
+        const scroller = viewport.contains(element) ? viewport
+            : overflow.contains(element) ? overflow
+            : menu.contains(element) ? menu
+            : undefined;
+        if (!scroller) return;
+        const control = element.getBoundingClientRect();
+        const bounds = scroller.getBoundingClientRect();
+        const left = bounds.left + scroller.clientLeft;
+        const right = left + scroller.clientWidth;
+        const top = bounds.top + scroller.clientTop;
+        const bottom = top + scroller.clientHeight;
+        // Scroll only this controls container, and only if the control is clipped.
+        // Repeated scrollIntoView calls can interrupt the PDF's smooth match navigation.
+        if (control.left < left) scroller.scrollLeft += control.left - left;
+        else if (control.right > right) scroller.scrollLeft += control.right - right;
+        if (scroller !== viewport) {
+            if (control.top < top) scroller.scrollTop += control.top - top;
+            else if (control.bottom > bottom) scroller.scrollTop += control.bottom - bottom;
+        }
+    }
+
+    function focusControl(element: HTMLElement | undefined): void {
+        if (!element) return;
+        element.focus({ preventScroll: true });
+        revealControl(element);
+    }
+
     function closeScreenshot(restoreFocus = false): void {
         menu.classList.remove('show');
         trigger.setAttribute('aria-expanded', 'false');
-        if (restoreFocus) trigger.focus();
+        if (restoreFocus) focusControl(trigger);
     }
 
     function closeOverflow(restoreFocus = false): void {
         overflow.classList.remove('show');
         more.setAttribute('aria-expanded', 'false');
         if (restoreFocus) {
-            (more.hidden ? document.getElementById('browse-extracted-btn')! : more).focus();
+            focusControl(more.hidden ? document.getElementById('browse-extracted-btn')! : more);
         }
     }
 
@@ -80,8 +108,8 @@ export function setupPdfToolbar(): { closeScreenshot: () => void; focusSearch: (
         const constrainedWidth = popup.getBoundingClientRect().width;
         popup.style.left = Math.max(margin, Math.min(anchor.left, window.innerWidth - constrainedWidth - margin)) + 'px';
         popup.style.top = (opensAbove ? Math.max(margin, anchor.top - height - 4) : anchor.bottom + 4) + 'px';
-        popup.scrollTop = scrollTop;
-        focused?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        if (popup.scrollTop !== scrollTop) popup.scrollTop = scrollTop;
+        if (focused) revealControl(focused);
     }
 
     function positionMenu(): void {
@@ -106,7 +134,7 @@ export function setupPdfToolbar(): { closeScreenshot: () => void; focusSearch: (
     function openOverflow(focusLast = false): void {
         showOverflow();
         const items = overflowItems();
-        (focusLast ? items.at(-1) : items[0])?.focus();
+        focusControl(focusLast ? items.at(-1) : items[0]);
     }
 
     function layout(): void {
@@ -163,15 +191,15 @@ export function setupPdfToolbar(): { closeScreenshot: () => void; focusSearch: (
         if (moved.size === 0) closeOverflow();
         else if (wasOpen || activeMoved) showOverflow();
 
-        viewport.scrollLeft = scrollLeft;
+        if (viewport.scrollLeft !== scrollLeft) viewport.scrollLeft = scrollLeft;
         if (active === more && more.hidden) {
-            document.getElementById('browse-extracted-btn')!.focus();
+            focusControl(document.getElementById('browse-extracted-btn')!);
         } else if (active && document.activeElement !== active) {
             active.focus({ preventScroll: true });
             if (selection) input!.setSelectionRange(selection.start, selection.end, selection.direction ?? undefined);
         }
         if (active && (toolbar.contains(active) || overflow.contains(active))) {
-            active.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+            revealControl(active);
         }
         positionMenu();
         positionPopup(overflow, more);
@@ -196,12 +224,12 @@ export function setupPdfToolbar(): { closeScreenshot: () => void; focusSearch: (
 
     function openScreenshot(focusLast = false): void {
         closeOverflow();
-        trigger.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        revealControl(trigger);
         menu.classList.add('show');
         trigger.setAttribute('aria-expanded', 'true');
         positionMenu();
         const items = buttons();
-        (focusLast ? items.at(-1) : items[0])?.focus();
+        focusControl(focusLast ? items.at(-1) : items[0]);
     }
 
     trigger.addEventListener('click', event => {
@@ -234,13 +262,13 @@ export function setupPdfToolbar(): { closeScreenshot: () => void; focusSearch: (
             closeScreenshot(true);
         } else if (event.key === 'Tab') {
             // Leave the menu through its trigger's normal toolbar tab order.
-            trigger.focus();
+            focusControl(trigger);
             closeScreenshot();
         }
         if (next !== undefined) {
             event.preventDefault();
             event.stopPropagation();
-            items[next]?.focus();
+            focusControl(items[next]);
         }
     });
     menu.addEventListener('click', event => {
@@ -263,7 +291,7 @@ export function setupPdfToolbar(): { closeScreenshot: () => void; focusSearch: (
         }
     });
     overflow.addEventListener('keydown', event => {
-        if (event.isComposing) return;
+        if (composing || event.isComposing) return;
         if (event.key === 'Escape') {
             event.preventDefault();
             event.stopPropagation();
@@ -273,7 +301,7 @@ export function setupPdfToolbar(): { closeScreenshot: () => void; focusSearch: (
             const active = document.activeElement;
             if ((event.shiftKey && active === items[0]) || (!event.shiftKey && active === items.at(-1))) {
                 // Exit the secondary controls through their pinned trigger's normal tab order.
-                more.focus();
+                focusControl(more);
                 closeOverflow();
             }
         }
@@ -285,11 +313,12 @@ export function setupPdfToolbar(): { closeScreenshot: () => void; focusSearch: (
         if (!more.contains(target) && !overflow.contains(target)) closeOverflow();
     });
     viewport.addEventListener('focusin', event => {
-        (event.target as HTMLElement).scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        revealControl(event.target as HTMLElement);
     });
     overflow.addEventListener('focusin', event => {
-        (event.target as HTMLElement).scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        revealControl(event.target as HTMLElement);
     });
+    menu.addEventListener('focusin', event => { revealControl(event.target as HTMLElement); });
     viewport.addEventListener('scroll', positionMenu, { passive: true });
     window.addEventListener('resize', () => {
         scheduleLayout();
@@ -310,8 +339,7 @@ export function setupPdfToolbar(): { closeScreenshot: () => void; focusSearch: (
         focusSearch: () => {
             closeScreenshot();
             if (overflow.contains(search)) showOverflow();
-            search.focus();
-            search.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+            focusControl(search);
         }
     };
 }

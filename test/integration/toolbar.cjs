@@ -50,6 +50,10 @@ function browserChecks() {
         // URL's ?id=. about:srcdoc has no ID and cannot load local PDF.js/PDFs.
         // Match VS Code's own iframe setup: load its same-origin fake.html URL,
         // preserving that ID, then write the production document into it.
+        // Keep vertical geometry within the real webview. Older Chromium walks
+        // all scrollIntoView ancestors, including a clipped oversized iframe.
+        const fixtureHeight = Math.min(900, window.innerHeight);
+        frame.style.height = `${fixtureHeight}px`;
         await new Promise((resolve, reject) => {
             const writeFixture = () => {
                 frame.removeEventListener('load', writeFixture);
@@ -137,11 +141,15 @@ function browserChecks() {
             return target.width > 0 && target.height > 0 && target.left >= clip.left - 1 && target.right <= clip.right + 1 &&
                 target.top >= clip.top - 1 && target.bottom <= clip.bottom + 1;
         };
-        const assertSelectedMatchVisible = (pageNumber, label) => {
+        const assertSelectedMatchVisible = async (pageNumber, label) => {
             const selected = [...doc.querySelectorAll('.textLayer .highlight.selected')];
             const clip = rect(byId('pdf-container'));
             check(selected.length > 0 && selected.every(element => byId(`page-${pageNumber}`).contains(element)),
                 `${label}: the selected match belongs to page ${pageNumber}`);
+            await waitFor(() => {
+                const bounds = rect(selected[0]);
+                return bounds.top >= clip.top - 1 && bounds.bottom <= clip.bottom + 1;
+            }, `${label}: smooth scrolling brings the matched text into view`);
             const bounds = rect(selected[0]);
             check(bounds.top >= clip.top - 1 && bounds.bottom <= clip.bottom + 1,
                 `${label}: matched text is visible in the actual PDF viewport`,
@@ -207,10 +215,16 @@ function browserChecks() {
         search.value = 'PDF Toolkit';
         search.dispatchEvent(new win.Event('input', { bubbles: true }));
         await waitFor(() => byId('search-results').textContent === '1 of 5', 'search results');
+        // Let search's smooth centering complete before the separate page jump;
+        // older Chromium otherwise keeps both scrolling requests in flight.
+        await pause(900);
         page.value = '3';
         page.dispatchEvent(new win.Event('change', { bubbles: true }));
         await pause(900); // Production page navigation uses smooth scrolling.
-        check(page.value === '3', 'Fixture navigation reaches page 3 before resizing');
+        await waitFor(() => Math.abs(rect(byId('page-3')).top - rect(byId('pdf-container')).top) < 2,
+            'page 3 scroll alignment');
+        check(page.value === '3', 'Fixture navigation reaches page 3 before resizing',
+            { value: page.value, page: rect(byId('page-3')).toJSON(), container: rect(byId('pdf-container')).toJSON() });
         const originalSearch = search;
         const originalPage = page;
         const originalZoom = zoom;
@@ -396,18 +410,20 @@ function browserChecks() {
         await openMoreFor(search);
         search.dispatchEvent(new win.Event('input', { bubbles: true }));
         await waitFor(() => doc.querySelector('#page-5 .textLayer .highlight'), 'refreshed search highlights after zoom rerender');
+        await pause(900);
+        await assertSelectedMatchVisible(1, 'Refreshed search after zoom');
         byId('search-next').click();
         check(byId('search-results').textContent === '2 of 5', 'Search Next retains its existing action in More');
         check(page.value === '2', 'Search Next updates the page indicator to its match before smooth scrolling');
         await pause(900);
         // The existing scroll tracker reports the top visible page; centering
         // a match near a page heading can leave the previous page at the top.
-        assertSelectedMatchVisible(2, 'Search Next from More');
+        await assertSelectedMatchVisible(2, 'Search Next from More');
         byId('search-prev').click();
         check(byId('search-results').textContent === '1 of 5', 'Search Previous retains its existing action in More');
         check(page.value === '1', 'Search Previous updates the page indicator to its match before smooth scrolling');
         await pause(900);
-        assertSelectedMatchVisible(1, 'Search Previous from More');
+        await assertSelectedMatchVisible(1, 'Search Previous from More');
         page.value = '3';
         page.dispatchEvent(new win.Event('change', { bubbles: true }));
         await pause(900);
@@ -445,7 +461,7 @@ function browserChecks() {
             'Moving a focused search into overflow opens More and reveals the input');
         await waitFor(() => byId('search-results').textContent === '1 of 1', 'pending search debounce after relocation');
         await pause(900);
-        assertSelectedMatchVisible(4, 'Pending search after relocation');
+        await assertSelectedMatchVisible(4, 'Pending search after relocation');
         const settledPage = page.value;
         frame.style.width = '1600px';
         await waitFor(() => win.innerWidth === 1600, 'focused search returning inline');
@@ -502,12 +518,22 @@ function browserChecks() {
             frame.style.width = '320px';
             await waitFor(() => win.innerWidth === 320, 'resize during search composition');
             await settle();
-            await pause(350); // Also exercise the real pending search-result update.
+            await pause(350); // Beyond the real search debounce, while composing.
             check(byId('search-results').textContent === '1 of 1' && searchMoves.length === movesBeforeComposition &&
                 searchGroup.parentElement === compositionParent && doc.activeElement === search &&
                 search.value === 'PDF Toolkit test page 2' && search.selectionStart === 5 && search.selectionEnd === 13,
                 'Composing search defers relocation through narrow resize and pending result updates without losing query or caret',
                 { searchMoves, parent: searchGroup.parentElement.id });
+            const completedMatches = [...doc.querySelectorAll('.textLayer .highlight.selected')];
+            check(completedMatches.length > 0 && completedMatches.every(element => byId('page-4').contains(element)),
+                'Partial composition does not replace the completed query or navigate the PDF');
+            // Result-label updates still must not relocate the composing input.
+            byId('search-results').textContent = '1 of 1 ';
+            await settle();
+            byId('search-results').textContent = '1 of 1';
+            await settle();
+            check(searchMoves.length === movesBeforeComposition && searchGroup.parentElement === compositionParent,
+                'Result updates during composition keep Search attached until composition ends');
             check(!focusEvents.slice(focusBeforeComposition).some(event => event.id === search.id),
                 'Deferred composition layout does not refocus its input');
             search.dispatchEvent(new win.CompositionEvent('compositionend', { bubbles: true, data: '2' }));
@@ -516,8 +542,15 @@ function browserChecks() {
                 more.getAttribute('aria-expanded') === 'true' && doc.activeElement === search &&
                 search.value === 'PDF Toolkit test page 2' && search.selectionStart === 5 && search.selectionEnd === 13,
                 'Composition end applies normal overflow priority while preserving the focused query and caret');
+            await waitFor(() => !!doc.querySelector('#page-2 .textLayer .highlight.selected'), 'completed composition query');
             await pause(900);
-            assertSelectedMatchVisible(2, 'Composing query after composition end');
+            await assertSelectedMatchVisible(2, 'Composing query after composition end');
+            search.dispatchEvent(new win.CompositionEvent('compositionstart', { bubbles: true, data: '2' }));
+            key(search, 'Escape', { isComposing: false });
+            check(more.getAttribute('aria-expanded') === 'true' && doc.activeElement === search &&
+                search.value === 'PDF Toolkit test page 2',
+                'Known composition keeps More open even when a key event lacks its composing flag');
+            search.dispatchEvent(new win.CompositionEvent('compositionend', { bubbles: true, data: '2' }));
             const queryBeforeEscape = search.value;
             const resultsBeforeEscape = byId('search-results').textContent;
             key(search, 'Escape');
@@ -564,8 +597,8 @@ function browserChecks() {
         await scrollWithVisibleTrigger('150px editor height');
         assertFocusedLast('150px editor height after toolbar scrolling');
         key(lastItem, 'Escape');
-        frame.style.height = '900px';
-        await waitFor(() => win.innerHeight === 900, 'restored editor height');
+        frame.style.height = `${fixtureHeight}px`;
+        await waitFor(() => win.innerHeight === fixtureHeight, 'restored editor height');
         await settle();
 
         // A focused, unfinished input should survive a size change too.
@@ -575,7 +608,7 @@ function browserChecks() {
         await waitFor(() => win.innerWidth === 320, 'focused input resize');
         await settle();
         check(doc.activeElement === zoom && zoom.value === '137%', 'Resize preserves focus and an unfinished zoom value');
-        api.postMessage({ type: 'toolbarTestResult', ok: true, assertions, samples, focusSamples, focusEvents,
+        api.postMessage({ type: 'toolbarTestResult', ok: true, viewportHeight: fixtureHeight, assertions, samples, focusSamples, focusEvents,
             syntheticFocusEvents: syntheticFocusCases.length, syntheticFocusCases });
     })().catch(error => api.postMessage({ type: 'toolbarTestResult', ok: false,
         error: error.stack || String(error), assertions, samples, focusSamples, focusEvents, messages,
