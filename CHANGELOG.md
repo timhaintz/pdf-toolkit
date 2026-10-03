@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Refocused the Marketplace description on selected-page and figure preparation, with a quick-start walkthrough before the table of contents.
+- Updated Copilot PDF-attachment guidance, clarified whole-page screenshots versus embedded raster images, and documented PDF Toolkit's data handling and chat attachment boundary.
+
 ## [2.3.0] - 2026-10-03
 
 ### Added
