@@ -95,8 +95,13 @@ npx @vscode/vsce verify-pat <PublisherID>
 ### Package only (without publishing)
 
 Prepare the release version and dated changelog before packaging, and preserve
-the previously released VSIX. From clean, synced `main` after the approved release
-changes have merged, build the final `.vsix`:
+the previously released VSIX. Move the release notes from `Unreleased` into the
+dated version section, then remove the empty `Unreleased` heading so the latest
+release appears first in the packaged changelog. Restore or add an `Unreleased`
+section when development for the next release starts.
+
+From clean, synced `main` after the approved release changes have merged, build
+the final `.vsix`:
 
 ```powershell
 npm run package:vsix
