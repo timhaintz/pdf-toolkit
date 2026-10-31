@@ -234,6 +234,39 @@ Record the tested commit, VS Code version, OS, automated results, manual checks,
 and remaining limits in the PR. Follow [PUBLISHING.md](PUBLISHING.md) for the final
 release. Keep the previous package available for recovery.
 
+### Security regression checks
+
+The normal preview keeps at most 12 resident page wrappers/text layers, limits
+each raster to 8 million pixels and 8,192 pixels per dimension, and limits resident
+plus in-flight preview rasters to 24 million pixels per panel. These are
+application-owned preview limits; they do not bound all PDF.js decoder/cache or
+browser memory. Stable virtual placeholders preserve long-document navigation.
+Search scans pages sequentially, retaining at most 10,000 match positions. It
+indexes at most 100,001 text items per page, matching the bundled PDF.js 5.4
+text-layer limit, and ignores highlights outside the available rendered items.
+
+Use the generated native security fixtures alongside the standard five-page
+fixtures. Verify the following in both source and actual installed-package
+integration, and repeat the affected visible checks in a disposable profile:
+
+| Case | Required result |
+| --- | --- |
+| Many mixed-size pages, distant jumps, scrolling, and repeated zoom | Mounted wrappers, text layers and resident/in-flight raster pixels remain within their bounds; later pages render and prior resources are released. |
+| A search term found only on a late, initially unrendered page | Full-document search finds it, loads that page, and shows the selected highlight at the actual text position. Clearing/replacing a query or navigating again prevents stale completion from moving the view. |
+| Manual scrolling during a slow render/search; text beyond the PDF.js text-layer limit | Delayed navigation does not pull the viewport back. Dense text cannot create inaccessible matches or throw during highlighting; normal cross-item matches remain selectable. |
+| Large page dimensions or PDF `/UserUnit` | Preview backing stores are capped before allocation while display/text geometry remains aligned. Unsupported export sizes report a controlled error before unsafe allocation. |
+| Normal PNG/JPEG, embedded raster and composite exports | Existing quality, dimensions, pixel content, page ordering, labels and duplicate decisions remain correct. A bounded embedded-image scan must preserve supported native bitmap dimensions. |
+| Image-only PDF with JPEG 2000 content | Decoded image pixels appear in a full-height viewport. PDF.js's hidden text-measurement canvas does not enter the flex layout or collapse the viewer. |
+| Oversized ordinary/embedded batch or overlapping requests | No partial batch is written; the resource guard recovers after failure. One bounded batch remains active until host handling acknowledges completion. |
+| `...pdf`, `..pdf`, dot/space-only stems, ordinary Unicode/spaces and uppercase extensions | Ordinary screenshot and embedded-image writes/history use a proper child of the configured screenshots root. Normal names, nested configured roots, no-workspace fallback and existing composite names remain compatible. This checks lexical containment, not pre-existing filesystem links. |
+| Rotation, dark mode, text selection, two PDFs and close during rendering | Existing interactions target the correct PDF, cached text aligns with pixels, and abandoned tasks do not repopulate disposed previews. |
+
+Normal screenshot/embedded-image canvases use the existing composite policy of
+8,192 pixels per dimension and 32 million pixels per image. Their encoded batch
+limit is 64 MiB. A resource-limit failure aborts the operation with an explicit
+message; it does not silently lower exported resolution or truncate selected pages.
+The separate composite protocol retains its existing one-image-at-a-time checks.
+
 ### Computer-use procedure
 
 1. Launch **Run Extension (temporary profile)** and record the development commit
@@ -575,3 +608,64 @@ runtime/PDF.js files match the final Issue #5 candidate. These are macOS source-
 UI checks; Windows visual/Copilot testing, OS input-method testing, a model response,
 and manual installed-package UI testing are not claimed. Earlier feature/minimum-
 version evidence remains applicable to the unchanged runtime.
+
+### Security maintenance functional QA: 31 October 2026
+
+Functional QA used PR #17 head `582c637d34197156044428b80f319ad3cf3d14b1`.
+The development candidate
+`artifacts/pdf-toolkit-2.4.0-security-boundaries-candidate.vsix` is not a new
+Marketplace release. It is 12,414,138 bytes with SHA256
+`a09c2e1559b567f9592325869aed2b1268a12fe0fd6b3c4fc90901258e33b395`.
+Its compiled runtime matches `fd60e60`; later changes refined tests only.
+
+Lint, all 124 Node tests and the full dependency audit passed with zero reported
+vulnerabilities. Source and installed-candidate integration passed on macOS with
+VS Code 1.142.0 and minimum supported 1.96.0. Each of the four runs completed
+414 toolbar and 85 security assertions, plus existing activation, commands,
+PDF.js/JPX rendering, ordinary screenshot, composite and multiple-PDF checks.
+Native fixtures covered fifty mixed-size pages, distant navigation/search,
+zoom/cancellation, rotation, glyph alignment, oversized `/UserUnit` handling and
+actual dot-name screenshot/embedded-image writes. The preview peak was twelve
+wrappers/text layers and 23,992,138 raster pixels; the allocation guard blocked
+no unsafe application allocation.
+
+Visible installed-candidate testing on macOS/VS Code 1.96.0 also passed real Tab
+traversal/focus reveal, keyboard Screenshot/More controls, page-35 navigation,
+visible selected page-50 search, repeated zoom, text selection, rotation and dark
+mode. A PNG exported and inspected at 630×891 while preview zoom was 50%.
+Oversized export produced a controlled error and no output directory. Image-only
+PDF display, dot-name overwrite/embedded duplicate handling, and closing other
+PDFs while retaining a usable original viewer also passed.
+
+[Linux/Windows CI](https://github.com/timhaintz/pdf-toolkit/actions/runs/41175759287)
+and [CodeQL](https://github.com/timhaintz/pdf-toolkit/actions/runs/41175761278)
+passed on that head. Automated background frames required explicit focusin
+handler events; real Tab evidence comes from the separate visible run. The nested
+fixture exercised PDF.js's main-thread fallback after its exact local blob-worker
+startup warning. These canvas limits do not bound all PDF.js/browser memory.
+Windows manual visual/Copilot coverage is not claimed.
+
+A pre-existing Fit Width calculation uses the first page's dimensions and omits
+the preview scale factor; differently sized pages can remain oversized. Manual
+zoom works. This handler was unchanged by the security work.
+
+These are functional results before release versioning. Record the final 2.4.1
+artifact identity, runtime comparison, installed-package integration and release
+CI separately. Preserve the previously released 2.4.0 VSIX.
+
+### Marketplace icon upload correction: 31 October 2026
+
+Marketplace rejected the first 2.4.1 upload because the icon exceeded its 1024 KB
+limit. The prior local/CI package and installation checks did not catch that
+server-side constraint. Add the icon-size check to packaging and verify the
+uncompressed icon in the final archive before upload.
+
+The original 1,449,729-byte icon contained a complete 992,834-byte PNG stream and
+456,895 trailing bytes after IEND. Removing only those trailing bytes preserves
+every PNG chunk, the compressed image data and the 1024×1024 dimensions. No
+resizing, image generation or colour conversion is involved. The rejected VSIX
+and its evidence are retained under ignored `artifacts/` paths. Version 2.4.1
+remains unpublished at this correction's start; keep it for the replacement.
+
+The rebuilt VSIX is a new candidate with a new SHA256. Record fresh package,
+installed-version and icon checks and CI evidence before the manual retry.
