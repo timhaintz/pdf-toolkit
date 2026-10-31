@@ -171,7 +171,7 @@
     "typescript": "^5.7.0"
   },
   "dependencies": {
-    "pdfjs-dist": "^5.4.530"
+    "pdfjs-dist": "^6.4.299"
   },
   "overrides": {
     "@eslint/config-array@^0.23.5": {
