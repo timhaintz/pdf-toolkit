@@ -266,6 +266,13 @@ function browserSecurityChecks() {
             // instead of waiting for text spans that legitimately do not exist.
             const canvas = doc.querySelector(`#page-${page} .page-canvas`);
             if (!canvas?.width || !canvas?.height) return false;
+            // The preview attaches its canvas and empty text layer before the
+            // asynchronous raster render finishes. PDF.js adds this attribute
+            // when its TextLayer is constructed after renderTask.promise, even
+            // for image-only pages. A partly painted Flate/inline image must not
+            // make the fixture probe a still-pending JPEG/VideoFrame region.
+            if (scenario.kind === 'raster-images' &&
+                !doc.querySelector(`#page-${page} .textLayer[data-main-rotation]`)) return false;
             const pixel = canvas.getContext('2d').getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data;
             return pixel[3] > 0 && (pixel[0] < 240 || pixel[1] < 240 || pixel[2] < 240);
         };

@@ -796,6 +796,12 @@ Flate/inline/JPEG fixture verifies preview colors and every pixel of three nativ
 16×16 exported PNGs. Both modes recorded one native-size VideoFrame draw,
 confirming that the real JPEG decoder path is exercised.
 
+CI exposed a race in that new fixture: an allocated canvas and empty text layer
+can exist before asynchronous JPEG rendering finishes. Wait for PDF.js's
+`data-main-rotation` text-layer attribute, set only by the post-raster
+constructor, before probing pixels. Keep the bounded wait and all pixel, image
+count and native-dimension assertions intact.
+
 An initial installed-profile toolbar fixture hit its outer 90-second startup
 limit without a browser error or result. Preserve that log alongside the
 successful fresh-profile rerun of the same unchanged VSIX; do not count the
