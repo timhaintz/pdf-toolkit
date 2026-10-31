@@ -4,6 +4,36 @@ Develop changes on a feature branch from current `main`. Local compilation,
 testing, and packaging do not update the Marketplace extension used by other
 people. Marketplace publishing is a separate release step.
 
+## Changes to main
+
+GitHub protects `main`: changes require a pull request, an up-to-date branch,
+and these successful GitHub Actions checks:
+
+- `Validate (ubuntu-latest)`
+- `Validate (windows-latest)`
+- `Analyze (javascript-typescript)`
+- `Analyze (actions)`
+
+The requirements also apply to administrators. No approving review is mandatory
+for this single-maintainer repository. Force pushes and deletion of `main` are
+blocked. If workflow job names change, update the required check names in branch
+protection as part of that maintenance. Fix failed checks or refresh a stale PR
+instead of bypassing protection.
+
+## Packaging dependency updates
+
+The `@vscode/vsce` override keeps its `minimatch` dependency on the patched range
+without tying that override to one packager version. After updating the packager,
+run a locked install, `npm ls @vscode/vsce minimatch --all`, the dependency audit,
+lint and tests. Check the resolved tree as well as the override declaration:
+an existing nested lockfile entry can retain an older version until regenerated.
+Preserve unrelated lockfile metadata and avoid broad dependency refreshes.
+
+Build a separately named test VSIX while the manifest still names the published
+version. Compare archive membership, compiled output and bundled PDF.js assets
+with the retained release, and run source plus installed-package integration.
+Packaging-tool maintenance alone does not require a new Marketplace upload.
+
 ## Set up
 
 Use Node.js 22 and install the locked dependencies:
@@ -841,3 +871,27 @@ comparison in the release PR and ignored
 published 2.4.1 VSIX. Upload remains manual, with Marketplace verification and
 post-upload checks performed separately. Existing coverage limits for CJK fonts,
 Windows manual visual testing and Copilot/model behavior still apply.
+
+### Packaging maintenance and main protection: 1 November 2026
+
+Updated PR #25 against main `ec5ec3746fd0a815659fc7b817211ba3bf50934f`.
+The packager update to 4.1.0 had stopped matching the version-specific override,
+retaining nested `minimatch` 10.2.6 and producing two moderate audit findings.
+Apply the override to `@vscode/vsce` across versions and remove that stale nested
+lockfile record so the existing patched 11.0.3 installation is reused. All other
+locked dependencies and platform metadata remain unchanged from the intended
+packager-only update.
+
+A fresh locked install, resolved dependency-tree check, lint and all 135 Node
+tests passed on Node 22.22.2. The dependency audit fell from two moderate findings
+to zero. Build `artifacts/pdf-toolkit-3.0.0-pr25-vsce4.1-candidate.vsix` separately
+from the retained published 3.0.0 package; record its archive/runtime comparison,
+installed-package integration and final Linux/Windows CI/CodeQL outcomes in
+[PR #25](https://github.com/timhaintz/pdf-toolkit/pull/25).
+
+GitHub protection readback confirmed the exact `main` rule, all four required
+checks bound to GitHub Actions, an up-to-date branch requirement and enforcement
+for administrators. Pull requests are required with zero mandatory approving
+reviews; force pushes and deletion are blocked. The existing PR was reported
+behind main before its refreshed branch was pushed. Keep before/after settings
+and recovery evidence under ignored `.vscode-test/pr25-2026-11-01/` paths.
