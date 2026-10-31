@@ -5,12 +5,16 @@ All notable changes to PDF Toolkit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.0.0] - 2026-11-01
+
+### Breaking
+
+- Require **VS Code 1.118.1 or newer**, raised from 1.96.0. Update VS Code before installing PDF Toolkit 3.0. Older VS Code installations can continue using PDF Toolkit 2.4.1.
 
 ### Changed
 
 - Update the bundled PDF renderer from PDF.js 5.4.530 to 6.4.299, using its official compatibility build for the supported VS Code versions.
-- Require VS Code 1.118.1 or newer and align development typings with the 1.118 API. Review the minimum at release preparation using an approximately six-month compatibility window; it stays fixed between releases.
+- Align development typings with the 1.118 API. Review the minimum at release preparation using an approximately six-month compatibility window; it stays fixed between releases.
 - Test source and installed VSIX behavior on both the minimum and latest stable VS Code in Linux/Windows CI. Keep automatic VS Code typings updates within the chosen API version until the next compatibility review.
 
 ### Fixed
