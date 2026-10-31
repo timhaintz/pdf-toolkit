@@ -180,7 +180,7 @@
     "@typescript-eslint/typescript-estree@^8.72.1": {
       "minimatch": "^11.0.1"
     },
-    "@vscode/vsce@4.0.0": {
+    "@vscode/vsce": {
       "minimatch": "^11.0.1"
     },
     "eslint@^10.14.0": {
