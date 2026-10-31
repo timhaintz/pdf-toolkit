@@ -78,6 +78,9 @@ function installVsix(executable, run) {
 
 async function main() {
     const executable = await resolveExecutable();
+    const requestedVersion = process.env.PDF_TOOLKIT_VSCODE_VERSION;
+    const expectedVersion = !process.env.PDF_TOOLKIT_VSCODE_EXECUTABLE
+        && /^\d+\.\d+\.\d+$/.test(requestedVersion || '') ? requestedVersion : undefined;
     console.log(`VS Code executable: ${executable}`);
     for (const mode of vsix ? ['development', 'packaged'] : ['development']) {
         const run = createRun(mode);
@@ -94,6 +97,7 @@ async function main() {
                 '--disable-extension=github.copilot', '--disable-extension=github.copilot-chat'],
             extensionTestsEnv: {
                 ELECTRON_RUN_AS_NODE: undefined,
+                PDF_TOOLKIT_TEST_VSCODE_VERSION: expectedVersion,
                 PDF_TOOLKIT_TEST_EXTENSION_PATH: extensionPath,
                 PDF_TOOLKIT_TEST_MODE: mode
             }

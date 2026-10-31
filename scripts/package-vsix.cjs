@@ -1,9 +1,11 @@
 const { mkdirSync } = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { validateMarketplaceAssets } = require('./validate-marketplace-assets.cjs');
 
 const root = path.resolve(__dirname, '..');
 const manifest = require('../package.json');
+validateMarketplaceAssets(root, manifest);
 const outputDir = path.join(root, 'artifacts');
 mkdirSync(outputDir, { recursive: true });
 const outputPath = path.join(outputDir, `${manifest.name}-${manifest.version}.vsix`);

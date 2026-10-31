@@ -341,7 +341,14 @@ This extension uses:
 
 ## Requirements
 
-- VS Code 1.96.0 or higher
+- VS Code 1.118.1 or higher
+
+We recommend the latest stable VS Code. When preparing a PDF Toolkit release,
+we review the minimum supported VS Code version using an approximately six-month
+compatibility window. The minimum stays fixed between releases; this does not
+require a regular release schedule. This next release raises the minimum from
+1.96.0 to 1.118.1, so users on older VS Code versions need to update VS Code to
+install it.
 
 ## Privacy and Data Handling
 

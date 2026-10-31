@@ -19,7 +19,7 @@
   },
   "homepage": "https://github.com/timhaintz/pdf-toolkit#readme",
   "engines": {
-    "vscode": "^1.96.0"
+    "vscode": "^1.118.1"
   },
   "categories": [
     "Other",
@@ -161,7 +161,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
-    "@types/vscode": "^1.96.0",
+    "@types/vscode": "~1.118.0",
     "@typescript-eslint/eslint-plugin": "^8.72.1",
     "@typescript-eslint/parser": "^8.72.1",
     "@vscode/test-electron": "3.1.0",
