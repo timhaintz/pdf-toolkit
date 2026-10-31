@@ -162,15 +162,29 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/vscode": "^1.96.0",
-    "@typescript-eslint/eslint-plugin": "^8.19.0",
-    "@typescript-eslint/parser": "^8.19.0",
+    "@typescript-eslint/eslint-plugin": "^8.72.1",
+    "@typescript-eslint/parser": "^8.72.1",
     "@vscode/test-electron": "3.1.0",
     "@vscode/vsce": "4.0.0",
-    "eslint": "^9.17.0",
+    "eslint": "^10.14.0",
     "jsonc-parser": "3.3.1",
     "typescript": "^5.7.0"
   },
   "dependencies": {
     "pdfjs-dist": "^5.4.530"
+  },
+  "overrides": {
+    "@eslint/config-array@^0.23.5": {
+      "minimatch": "^11.0.1"
+    },
+    "@typescript-eslint/typescript-estree@^8.72.1": {
+      "minimatch": "^11.0.1"
+    },
+    "@vscode/vsce@4.0.0": {
+      "minimatch": "^11.0.1"
+    },
+    "eslint@^10.14.0": {
+      "minimatch": "^11.0.1"
+    }
   }
 }
