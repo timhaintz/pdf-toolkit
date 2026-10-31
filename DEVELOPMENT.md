@@ -652,3 +652,20 @@ zoom works. This handler was unchanged by the security work.
 These are functional results before release versioning. Record the final 2.4.1
 artifact identity, runtime comparison, installed-package integration and release
 CI separately. Preserve the previously released 2.4.0 VSIX.
+
+### Marketplace icon upload correction: 31 October 2026
+
+Marketplace rejected the first 2.4.1 upload because the icon exceeded its 1024 KB
+limit. The prior local/CI package and installation checks did not catch that
+server-side constraint. Add the icon-size check to packaging and verify the
+uncompressed icon in the final archive before upload.
+
+The original 1,449,729-byte icon contained a complete 992,834-byte PNG stream and
+456,895 trailing bytes after IEND. Removing only those trailing bytes preserves
+every PNG chunk, the compressed image data and the 1024×1024 dimensions. No
+resizing, image generation or colour conversion is involved. The rejected VSIX
+and its evidence are retained under ignored `artifacts/` paths. Version 2.4.1
+remains unpublished at this correction's start; keep it for the replacement.
+
+The rebuilt VSIX is a new candidate with a new SHA256. Record fresh package,
+installed-version and icon checks and CI evidence before the manual retry.
