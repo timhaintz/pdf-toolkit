@@ -234,6 +234,34 @@ Record the tested commit, VS Code version, OS, automated results, manual checks,
 and remaining limits in the PR. Follow [PUBLISHING.md](PUBLISHING.md) for the final
 release. Keep the previous package available for recovery.
 
+### Security regression checks
+
+The normal preview keeps at most 12 resident page wrappers/text layers, limits
+each raster to 8 million pixels and 8,192 pixels per dimension, and limits resident
+plus in-flight preview rasters to 24 million pixels per panel. These are
+application-owned preview limits; they do not bound all PDF.js decoder/cache or
+browser memory. Stable virtual placeholders preserve long-document navigation.
+
+Use the generated native security fixtures alongside the standard five-page
+fixtures. Verify the following in both source and actual installed-package
+integration, and repeat the affected visible checks in a disposable profile:
+
+| Case | Required result |
+| --- | --- |
+| Many mixed-size pages, distant jumps, scrolling, and repeated zoom | Mounted wrappers, text layers and resident/in-flight raster pixels remain within their bounds; later pages render and prior resources are released. |
+| A search term found only on a late, initially unrendered page | Full-document search finds it, loads that page, and shows the selected highlight at the actual text position. Clearing/replacing a query or navigating again prevents stale completion from moving the view. |
+| Large page dimensions or PDF `/UserUnit` | Preview backing stores are capped before allocation while display/text geometry remains aligned. Unsupported export sizes report a controlled error before unsafe allocation. |
+| Normal PNG/JPEG, embedded raster and composite exports | Existing quality, dimensions, pixel content, page ordering, labels and duplicate decisions remain correct. A bounded embedded-image scan must preserve supported native bitmap dimensions. |
+| Oversized ordinary/embedded batch or overlapping requests | No partial batch is written; the resource guard recovers after failure. One bounded batch remains active until host handling acknowledges completion. |
+| `...pdf`, `..pdf`, dot/space-only stems, ordinary Unicode/spaces and uppercase extensions | Ordinary screenshot and embedded-image writes/history use a proper child of the configured screenshots root. Normal names, nested configured roots, no-workspace fallback and existing composite names remain compatible. This checks lexical containment, not pre-existing filesystem links. |
+| Rotation, dark mode, text selection, two PDFs and close during rendering | Existing interactions target the correct PDF, cached text aligns with pixels, and abandoned tasks do not repopulate disposed previews. |
+
+Normal screenshot/embedded-image canvases use the existing composite policy of
+8,192 pixels per dimension and 32 million pixels per image. Their encoded batch
+limit is 64 MiB. A resource-limit failure aborts the operation with an explicit
+message; it does not silently lower exported resolution or truncate selected pages.
+The separate composite protocol retains its existing one-image-at-a-time checks.
+
 ### Computer-use procedure
 
 1. Launch **Run Extension (temporary profile)** and record the development commit

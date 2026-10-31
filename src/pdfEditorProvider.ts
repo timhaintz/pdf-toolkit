@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { CompositeOptions, planCompositeImages } from './compositeLayout';
 import { setupPdfToolbar } from './pdfToolbar';
+import { setupPdfPreview } from './pdfPreview';
+import { createExportLimits } from './exportLimits';
 
 interface CompositeGroup { width: number; height: number; pages: number[] }
 interface CompositeRequest {
@@ -142,6 +144,25 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         throw new Error('No workspace or document available');
     }
 
+    /** Keep every PDF-derived output leaf strictly beneath the configured root. */
+    private getPdfOutputDirectory(document: PdfDocument, composite = false): { name: string; directory: string } {
+        const root = path.resolve(this.getScreenshotsDir(document));
+        // Preserve existing ordinary/uppercase and composite naming conventions.
+        const original = composite
+            ? `${path.basename(document.uri.fsPath, path.extname(document.uri.fsPath))}-composites`
+            : path.basename(document.uri.fsPath, '.pdf');
+        // Dot/space-only leaves may collapse to the current/parent directory,
+        // including Windows' trailing-dot/space normalization.
+        const name = original.replaceAll('.', '').trim().length ? original : 'document';
+        const directory = path.resolve(root, name);
+        const relative = path.relative(root, directory);
+        if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+            throw new Error('The PDF output directory must be inside the configured screenshots folder.');
+        }
+        // This is lexical containment; existing filesystem links are not resolved.
+        return { name, directory };
+    }
+
     /**
      * Called when a PDF file is opened
      */
@@ -246,11 +267,26 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                         panelState.currentPage = message.page;
                         break;
                     case 'extractedPages':
-                        await this.saveExtractedPages(panelState.document, message.pages, message.format);
+                        try {
+                            await this.saveExtractedPages(panelState.document, message.pages, message.format);
+                        } catch (error) {
+                            void vscode.window.showErrorMessage(`Failed to save extracted pages: ${error}`);
+                        } finally {
+                            await this.acknowledgeExtraction(webviewPanel, message.extractionId);
+                        }
                         break;
-                    case 'extractedImages':
-                        await this.saveExtractedImages(panelState.document, webviewPanel, message.images, message.totalFound);
+                    case 'extractedImages': {
+                        let afterSave: (() => void) | void = undefined;
+                        try {
+                            afterSave = await this.saveExtractedImages(panelState.document, webviewPanel, message.images, message.totalFound);
+                        } catch (error) {
+                            void vscode.window.showErrorMessage(`Failed to save extracted images: ${error}`);
+                        } finally {
+                            await this.acknowledgeExtraction(webviewPanel, message.extractionId);
+                        }
+                        afterSave?.();
                         break;
+                    }
                     case 'compositePlan':
                     case 'compositeImage':
                     case 'compositeError': {
@@ -441,8 +477,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             ? Array.from({ length: source.totalPages }, (_, i) => i + 1)
             : this.parsePageRange(range, source.totalPages);
         const document = this._panels.get(source.panel)!.document;
-        const name = `${path.basename(document.uri.fsPath, path.extname(document.uri.fsPath))}-composites`;
-        const outputDir = path.join(this.getScreenshotsDir(document), name);
+        const { name, directory: outputDir } = this.getPdfOutputDirectory(document, true);
         if (this._compositeDirectories.has(outputDir) || Array.from(this._composites.values()).some(r => r.panel === source.panel)) {
             throw new Error('A composite export for this PDF is already running. Wait for it to finish.');
         }
@@ -604,16 +639,36 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         return Array.from(pages).sort((a, b) => a - b);
     }
 
-    /**
-     * Save extracted pages to files
-     */
+    private async acknowledgeExtraction(panel: vscode.WebviewPanel, extractionId: unknown): Promise<void> {
+        // Older webviews/tests have no ID. A matching acknowledgement releases
+        // the browser's batch guard only after host writes/prompts have settled.
+        if (typeof extractionId !== 'string') return;
+        try {
+            await panel.webview.postMessage({ type: 'extractionComplete', extractionId });
+        } catch { /* A disposed webview has no remaining extraction to unlock. */ }
+    }
+
+    private showExtractionResult(message: string, outputDir: string, savedFiles: string[]): void {
+        // Retain paths for optional actions, without holding the encoded batch
+        // or delaying the completion acknowledgement until dismissal.
+        void Promise.resolve(vscode.window.showInformationMessage(
+            message, 'Open Folder', 'Add to Copilot Chat', 'Open First Image'
+        )).then(async action => {
+            if (action === 'Open Folder') {
+                await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outputDir));
+            } else if (action === 'Add to Copilot Chat') {
+                await this.addImagesToCopilotChat(savedFiles);
+            } else if (action === 'Open First Image' && savedFiles.length > 0) {
+                await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(savedFiles[0]));
+            }
+        }, () => {}).catch(error => { void vscode.window.showErrorMessage(`Could not open the exported images: ${error}`); });
+    }
+
+    /** Save extracted pages to files. */
     private async saveExtractedPages(document: PdfDocument, pages: { page: number; data: string }[], format: string): Promise<void> {
-        const pdfUri = document.uri;
-        const pdfName = path.basename(pdfUri.fsPath, '.pdf');
-        
         // Use centralized PDF Screenshots folder
         const screenshotsDir = this.getScreenshotsDir(document);
-        const outputDir = path.join(screenshotsDir, pdfName);
+        const { name: pdfName, directory: outputDir } = this.getPdfOutputDirectory(document);
 
         try {
             // Create parent PDF Screenshots folder if needed
@@ -714,21 +769,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
 
         const skippedMsg = existingFiles.length > 0 ? ` (${existingFiles.length} already existed)` : '';
         const message = `Extracted ${savedFiles.length} page(s) to: ${outputDir}${skippedMsg}`;
-        const action = await vscode.window.showInformationMessage(
-            message,
-            'Open Folder',
-            'Add to Copilot Chat',
-            'Open First Image'
-        );
-
-        if (action === 'Open Folder') {
-            await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outputDir));
-        } else if (action === 'Add to Copilot Chat') {
-            await this.addImagesToCopilotChat(savedFilePaths);
-        } else if (action === 'Open First Image' && savedFiles.length > 0) {
-            const firstImage = path.join(outputDir, savedFiles[0]);
-            await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(firstImage));
-        }
+        this.showExtractionResult(message, outputDir, savedFilePaths);
     }
 
     /**
@@ -749,26 +790,22 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
     /**
      * Save extracted embedded images (charts, figures, photos) from PDF
      */
-    private async saveExtractedImages(document: PdfDocument, panel: vscode.WebviewPanel, images: Array<{ index: number; page: number; width: number; height: number; data: string }>, totalFound: number): Promise<void> {
+    private async saveExtractedImages(document: PdfDocument, panel: vscode.WebviewPanel, images: Array<{ index: number; page: number; width: number; height: number; data: string }>, totalFound: number): Promise<(() => void) | void> {
         if (images.length === 0) {
-            const action = await vscode.window.showInformationMessage(
-                'No embedded raster images found. Charts and diagrams drawn as vector graphics won\'t appear here — use Screenshot (📷) to capture those pages instead.',
-                'Screenshot Current Page'
-            );
-            if (action === 'Screenshot Current Page') {
-                this.extractPages('current', undefined, panel);
-            }
-            return;
+            // The host handler runs this recovery action after acknowledging
+            // the empty batch, so the screenshot request can acquire the guard.
+            return () => {
+                void Promise.resolve(vscode.window.showInformationMessage(
+                    'No embedded raster images found. Charts and diagrams drawn as vector graphics won\'t appear here — use Screenshot (📷) to capture those pages instead.',
+                    'Screenshot Current Page'
+                )).then(action => {
+                    if (action === 'Screenshot Current Page') return this.extractPages('current', undefined, panel);
+                }, () => {}).catch(error => { void vscode.window.showErrorMessage(`Could not start the screenshot: ${error}`); });
+            };
         }
 
-        // Get the screenshots folder name from settings
-        const config = vscode.workspace.getConfiguration('pdfToolkit');
-        const screenshotsFolderName = config.get<string>('screenshotsFolder', 'PDF-Screenshots');
-
         // Create output directory
-        const pdfName = path.basename(document.uri.fsPath, '.pdf');
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || path.dirname(document.uri.fsPath);
-        const outputDir = path.join(workspaceFolder, screenshotsFolderName, pdfName);
+        const { directory: outputDir } = this.getPdfOutputDirectory(document);
 
         // Ensure directory exists
         await vscode.workspace.fs.createDirectory(vscode.Uri.file(outputDir));
@@ -800,37 +837,21 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         }
 
         if (savedFiles.length === 0 && skippedFiles.length > 0) {
-            const action = await vscode.window.showWarningMessage(
+            const existingPaths = skippedFiles.map(f => path.join(outputDir, f));
+            void Promise.resolve(vscode.window.showWarningMessage(
                 `All ${skippedFiles.length} image(s) already exist in: ${outputDir}`,
                 'Open Folder',
                 'Add to Copilot Chat'
-            );
-
-            if (action === 'Open Folder') {
-                await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outputDir));
-            } else if (action === 'Add to Copilot Chat') {
-                const existingPaths = skippedFiles.map(f => path.join(outputDir, f));
-                await this.addImagesToCopilotChat(existingPaths);
-            }
+            )).then(async action => {
+                if (action === 'Open Folder') await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outputDir));
+                else if (action === 'Add to Copilot Chat') await this.addImagesToCopilotChat(existingPaths);
+            }, () => {}).catch(error => { void vscode.window.showErrorMessage(`Could not open the exported images: ${error}`); });
             return;
         }
 
         const skippedMsg = skippedFiles.length > 0 ? ` (${skippedFiles.length} already existed)` : '';
         const message = `Extracted ${savedFiles.length} embedded image(s) to: ${outputDir}${skippedMsg}`;
-        const action = await vscode.window.showInformationMessage(
-            message,
-            'Open Folder',
-            'Add to Copilot Chat',
-            'Open First Image'
-        );
-
-        if (action === 'Open Folder') {
-            await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outputDir));
-        } else if (action === 'Add to Copilot Chat') {
-            await this.addImagesToCopilotChat(savedFiles);
-        } else if (action === 'Open First Image' && savedFiles.length > 0) {
-            await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(savedFiles[0]));
-        }
+        this.showExtractionResult(message, outputDir, savedFiles);
     }
 
     private getHtmlContent(
@@ -1505,9 +1526,9 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         let currentPage = 1;
         let totalPages = 0;
         let currentScale = 1.0;
-        let pageCanvases = [];
         let currentRotation = 0; // 0, 90, 180, 270 degrees
         let isDarkMode = false;
+        const exportLimits = (${createExportLimits.toString()})();
         const planCompositeImages = ${planCompositeImages.toString()};
         const compositeJobs = new Map();
 
@@ -1587,6 +1608,9 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         // Search state
         let searchMatches = [];
         let currentMatchIndex = -1;
+        let searchGeneration = 0;
+        let matchNavigationGeneration = 0;
+        let zoomGeneration = 0;
 
         // Outline state
         let outlineItems = [];
@@ -1621,92 +1645,23 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             }
         }
 
+        // Only resident preview pages retain text-layer DOM references.
+        let pageTextData = {};
+        const preview = (${setupPdfPreview.toString()})({
+            container,
+            getDocument: () => pdfDoc,
+            getScale: () => currentScale,
+            getRotation: () => currentRotation,
+            getCurrentPage: () => currentPage,
+            createTextLayer: options => new pdfjsLib.TextLayer(options),
+            onText: (page, data) => { pageTextData[page] = data; highlightMatches(); },
+            onEvict: page => { delete pageTextData[page]; },
+            onError: message => vscode.postMessage({ type: 'error', message })
+        });
+        window.addEventListener('beforeunload', () => preview.dispose());
+
         async function renderAllPages() {
-            container.innerHTML = '';
-            pageCanvases = [];
-
-            for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-                const pageWrapper = document.createElement('div');
-                pageWrapper.className = 'page-wrapper';
-                pageWrapper.id = 'page-' + pageNum;
-                applyRotation(pageWrapper);
-
-                // Container for canvas and text layer
-                const pageContent = document.createElement('div');
-                pageContent.className = 'page-content';
-
-                const canvas = document.createElement('canvas');
-                canvas.className = 'page-canvas';
-                pageContent.appendChild(canvas);
-
-                // Text layer for text selection
-                const textLayer = document.createElement('div');
-                textLayer.className = 'textLayer';
-                textLayer.id = 'text-layer-' + pageNum;
-                pageContent.appendChild(textLayer);
-
-                pageWrapper.appendChild(pageContent);
-
-                const pageNumber = document.createElement('div');
-                pageNumber.className = 'page-number';
-                pageNumber.textContent = 'Page ' + pageNum + ' of ' + totalPages;
-                pageWrapper.appendChild(pageNumber);
-
-                container.appendChild(pageWrapper);
-                pageCanvases.push(canvas);
-
-                await renderPage(pageNum, canvas, textLayer);
-            }
-        }
-
-        // Per-page text layer data for search highlighting
-        let pageTextData = {}; // pageNum -> { textDivs: [], textContentItemsStr: [] }
-
-        async function renderPage(pageNum, canvas, textLayer) {
-            try {
-                const page = await pdfDoc.getPage(pageNum);
-                const viewport = page.getViewport({ scale: currentScale * 1.5 }); // 1.5x for better quality
-
-                canvas.height = viewport.height;
-                canvas.width = viewport.width;
-
-                // Set up the page content container size
-                const pageContent = canvas.parentElement;
-                pageContent.style.width = viewport.width + 'px';
-                pageContent.style.height = viewport.height + 'px';
-
-                // Set the CSS custom property TextLayer needs for font sizing
-                pageContent.style.setProperty('--total-scale-factor', viewport.scale);
-
-                const context = canvas.getContext('2d');
-                const renderContext = {
-                    canvasContext: context,
-                    viewport: viewport
-                };
-
-                await page.render(renderContext).promise;
-
-                // Render text layer using PDF.js built-in TextLayer
-                if (textLayer) {
-                    textLayer.innerHTML = '';
-
-                    const textContent = await page.getTextContent();
-                    const textLayerInstance = new pdfjsLib.TextLayer({
-                        textContentSource: textContent,
-                        container: textLayer,
-                        viewport: viewport,
-                    });
-                    await textLayerInstance.render();
-
-                    // Store references for search highlighting
-                    pageTextData[pageNum] = {
-                        textDivs: textLayerInstance.textDivs,
-                        textContentItemsStr: textLayerInstance.textContentItemsStr,
-                    };
-                }
-            } catch (error) {
-                console.error('Error rendering page ' + pageNum + ':', error);
-            }
+            await preview.reset();
         }
 
         // Rotation functions
@@ -1732,6 +1687,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             document.querySelectorAll('.page-wrapper').forEach(wrapper => {
                 applyRotation(wrapper);
             });
+            preview.refresh();
         }
 
         // Dark mode function
@@ -1751,75 +1707,73 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
 
         // Search functions
         async function performSearch(query) {
-            if (!query || query.length < 2) {
-                clearSearchHighlights();
-                searchMatches = [];
-                currentMatchIndex = -1;
-                updateSearchResults();
-                return;
-            }
-
+            const generation = ++searchGeneration;
+            const navigationAtStart = matchNavigationGeneration;
+            clearSearchHighlights();
             searchMatches = [];
             currentMatchIndex = -1;
-            clearSearchHighlights();
+            updateSearchResults();
+            if (!query || query.length < 2) return;
 
             const lowerQuery = query.toLowerCase();
-
-            // Search through each page's text data from TextLayer
+            const matches = [];
+            const maxMatches = 10000;
+            // Search sequential PDF text, independently of resident preview DOM.
             for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-                const data = pageTextData[pageNum];
-                if (!data) continue;
-
-                const { textContentItemsStr } = data;
-
-                // Concatenate all text items on this page to find cross-item matches
+                if (generation !== searchGeneration) return;
+                let textContent;
+                try {
+                    const page = await pdfDoc.getPage(pageNum);
+                    if (generation !== searchGeneration) return;
+                    textContent = await page.getTextContent();
+                } catch (error) {
+                    console.warn('Could not search page ' + pageNum + ':', error);
+                    continue;
+                }
+                if (generation !== searchGeneration) return;
+                const strings = textContent.items.filter(item => typeof item.str === 'string').map(item => item.str);
                 let pageText = '';
-                const itemOffsets = []; // maps character offset in pageText -> { divIdx, charInDiv }
-                for (let i = 0; i < textContentItemsStr.length; i++) {
-                    const str = textContentItemsStr[i];
-                    for (let c = 0; c < str.length; c++) {
-                        itemOffsets.push({ divIdx: i, charInDiv: c });
+                const offsets = [];
+                for (const text of strings) {
+                    offsets.push(pageText.length);
+                    pageText += text;
+                }
+                // Compact item offsets avoid one mapping object per character.
+                function positionAt(offset) {
+                    let low = 0;
+                    let high = offsets.length;
+                    while (low < high) {
+                        const middle = Math.floor((low + high) / 2);
+                        if (offsets[middle] <= offset) low = middle + 1;
+                        else high = middle;
                     }
-                    pageText += str;
+                    const divIdx = Math.max(0, low - 1);
+                    return { divIdx, charInDiv: offset - offsets[divIdx] };
                 }
-
-                function debugLog(msg) { if (DEBUG_ENABLED) { vscode.postMessage({ type: 'debug', message: msg }); } }
-                debugLog('[Search] Page ' + pageNum + ': ' + textContentItemsStr.length + ' text items, pageText length=' + pageText.length);
-                debugLog('[Search] Page ' + pageNum + ' first 5 items: ' + JSON.stringify(textContentItemsStr.slice(0, 5)));
-
-                const lowerPageText = pageText.toLowerCase();
-                let pos = 0;
-                while ((pos = lowerPageText.indexOf(lowerQuery, pos)) !== -1) {
-                    // Map the match start/end back to div indices and char offsets
-                    const startInfo = itemOffsets[pos];
-                    const endInfo = itemOffsets[pos + lowerQuery.length - 1];
-
-                    // Debug: show what we matched and where
-                    const matchedText = pageText.substring(pos, pos + lowerQuery.length);
-                    const contextBefore = pageText.substring(Math.max(0, pos - 15), pos);
-                    const contextAfter = pageText.substring(pos + lowerQuery.length, pos + lowerQuery.length + 15);
-                    debugLog('[Search] Match on page ' + pageNum + ': "...' + contextBefore + '[' + matchedText + ']' + contextAfter + '..."');
-                    debugLog('[Search]   divIdx=' + startInfo.divIdx + '-' + endInfo.divIdx + ', chars=' + startInfo.charInDiv + '-' + (endInfo.charInDiv + 1));
-                    debugLog('[Search]   startDiv text: "' + textContentItemsStr[startInfo.divIdx] + '"');
-                    debugLog('[Search]   startDiv DOM text: "' + (data.textDivs[startInfo.divIdx]?.textContent || 'N/A') + '"');
-
-                    searchMatches.push({
-                        pageNum: pageNum,
-                        startDivIdx: startInfo.divIdx,
-                        startCharIdx: startInfo.charInDiv,
-                        endDivIdx: endInfo.divIdx,
-                        endCharIdx: endInfo.charInDiv + 1, // exclusive
-                    });
-                    pos += 1;
+                const lowerText = pageText.toLowerCase();
+                let position = 0;
+                while ((position = lowerText.indexOf(lowerQuery, position)) !== -1) {
+                    const start = positionAt(position);
+                    const end = positionAt(position + lowerQuery.length - 1);
+                    matches.push({ pageNum, startDivIdx: start.divIdx, startCharIdx: start.charInDiv,
+                        endDivIdx: end.divIdx, endCharIdx: end.charInDiv + 1 });
+                    if (matches.length === maxMatches) break;
+                    position++;
                 }
+                if (matches.length === maxMatches) break;
+                if (pageNum % 16 === 0) await new Promise(resolve => setTimeout(resolve, 0));
+                if (generation !== searchGeneration) return;
             }
-
-            if (searchMatches.length > 0) {
+            if (generation !== searchGeneration) return;
+            searchMatches = matches;
+            if (matches.length > 0) {
                 currentMatchIndex = 0;
                 highlightMatches();
-                goToCurrentMatch();
+                if (navigationAtStart === matchNavigationGeneration) await goToCurrentMatch();
             }
-
+            if (matches.length === maxMatches) {
+                vscode.postMessage({ type: 'status', message: 'Showing the first 10,000 matches. Refine your search to narrow the results.' });
+            }
             updateSearchResults();
         }
 
@@ -1937,29 +1891,20 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             });
         }
 
-        function goToCurrentMatch() {
+        async function goToCurrentMatch() {
             if (currentMatchIndex < 0 || currentMatchIndex >= searchMatches.length) return;
-
             const match = searchMatches[currentMatchIndex];
-
-            // Update all highlights — remove 'selected' from old, add to new
-            document.querySelectorAll('.textLayer .highlight.selected').forEach(function(el) {
-                el.classList.remove('selected');
-            });
-
-            const currentElements = document.querySelectorAll('.highlight[data-match-index="' + currentMatchIndex + '"]');
-            currentElements.forEach(function(el) {
-                el.classList.add('selected');
-            });
-
-            // Scroll the first element of the current match into view
-            if (currentElements.length > 0) {
-                currentElements[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-
-            // Update page indicator
+            const generation = ++matchNavigationGeneration;
+            const queryGeneration = searchGeneration;
+            // Set the indicator immediately, while an off-screen match is loaded.
             currentPage = match.pageNum;
             pageInput.value = currentPage;
+            await preview.ensurePage(match.pageNum);
+            if (generation !== matchNavigationGeneration || queryGeneration !== searchGeneration ||
+                !pageTextData[match.pageNum] || !document.getElementById('page-' + match.pageNum)) return;
+            highlightMatches();
+            const elements = document.querySelectorAll('.highlight[data-match-index="' + currentMatchIndex + '"]');
+            if (elements.length > 0) elements[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
 
         function nextMatch() {
@@ -1986,6 +1931,8 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         }
 
         function clearSearch() {
+            searchGeneration++;
+            matchNavigationGeneration++;
             document.getElementById('search-input').value = '';
             clearSearchHighlights();
             searchMatches = [];
@@ -2058,265 +2005,311 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         }
 
         async function updateZoom(newScale) {
-            // Clamp to valid range: 25% (0.25) to 500% (5.0)
+            const generation = ++zoomGeneration;
+            matchNavigationGeneration++;
             currentScale = Math.max(0.25, Math.min(5.0, newScale));
             zoomDisplay.value = Math.round(currentScale * 100) + '%';
             await renderAllPages();
+            if (generation === zoomGeneration && currentMatchIndex >= 0) await goToCurrentMatch();
         }
 
         function scrollToPage(pageNum) {
-            const pageElement = document.getElementById('page-' + pageNum);
-            if (pageElement) {
-                pageElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                currentPage = pageNum;
-                pageInput.value = pageNum;
-                vscode.postMessage({ type: 'currentPage', page: currentPage });
-            }
+            matchNavigationGeneration++;
+            currentPage = pageNum;
+            pageInput.value = currentPage;
+            vscode.postMessage({ type: 'currentPage', page: currentPage });
+            void preview.scrollToPage(pageNum);
         }
 
         async function extractPagesAsImages(pageNumbers, quality, format) {
+            const extractionId = exportLimits.begin();
+            if (!extractionId) return;
+            let handedToHost = false;
             const extractedPages = [];
+            try {
+                for (let i = 0; i < pageNumbers.length; i++) {
+                    const pageNum = pageNumbers[i];
+                    let canvas;
 
-            for (let i = 0; i < pageNumbers.length; i++) {
-                const pageNum = pageNumbers[i];
+                    if (pageNumbers.length > 1) {
+                        vscode.postMessage({ type: 'status', message: 'Extracting page ' + (i + 1) + ' of ' + pageNumbers.length + '...' });
+                    }
 
-                if (pageNumbers.length > 1) {
-                    vscode.postMessage({ type: 'status', message: 'Extracting page ' + (i + 1) + ' of ' + pageNumbers.length + '...' });
+                    try {
+                        const page = await pdfDoc.getPage(pageNum);
+                        const viewport = page.getViewport({ scale: quality * 1.5 });
+                        exportLimits.assertDimensions(viewport.width, viewport.height, 'Page ' + pageNum);
+
+                        canvas = document.createElement('canvas');
+                        canvas.width = viewport.width;
+                        canvas.height = viewport.height;
+
+                        const context = canvas.getContext('2d');
+                        if (!context) exportLimits.fail('Unable to allocate the page image.');
+                        context.fillStyle = 'white';
+                        context.fillRect(0, 0, canvas.width, canvas.height);
+
+                        await page.render({
+                            canvasContext: context,
+                            viewport: viewport
+                        }).promise;
+
+                        const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+                        const dataUrl = canvas.toDataURL(mimeType, 0.95);
+                        exportLimits.retainDataUrl(dataUrl);
+
+                        extractedPages.push({ page: pageNum, data: dataUrl });
+                    } catch (error) {
+                        if (exportLimits.isResourceLimitError(error)) throw error;
+                        console.error('Error extracting page ' + pageNum + ':', error);
+                    } finally {
+                        if (canvas) { canvas.width = 0; canvas.height = 0; }
+                    }
                 }
 
-                try {
-                    const page = await pdfDoc.getPage(pageNum);
-                    const viewport = page.getViewport({ scale: quality * 1.5 });
-
-                    const canvas = document.createElement('canvas');
-                    canvas.width = viewport.width;
-                    canvas.height = viewport.height;
-
-                    const context = canvas.getContext('2d');
-                    context.fillStyle = 'white';
-                    context.fillRect(0, 0, canvas.width, canvas.height);
-
-                    await page.render({
-                        canvasContext: context,
-                        viewport: viewport
-                    }).promise;
-
-                    const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
-                    const dataUrl = canvas.toDataURL(mimeType, 0.95);
-
-                    extractedPages.push({
-                        page: pageNum,
-                        data: dataUrl
-                    });
-                } catch (error) {
-                    console.error('Error extracting page ' + pageNum + ':', error);
-                }
+                exportLimits.waitForHost(extractionId);
+                vscode.postMessage({ type: 'extractedPages', extractionId, pages: extractedPages, format: format });
+                handedToHost = true;
+            } catch (error) {
+                vscode.postMessage({ type: 'error', message: error.message });
+            } finally {
+                if (!handedToHost) exportLimits.end(extractionId);
             }
-
-            vscode.postMessage({
-                type: 'extractedPages',
-                pages: extractedPages,
-                format: format
-            });
         }
 
         // Extract embedded images from PDF (charts, figures, photos)
         async function extractEmbeddedImages() {
-            const extractedImages = [];
-            let imageIndex = 0;
+            const extractionId = exportLimits.begin();
+            if (!extractionId) return;
+            let handedToHost = false;
+            try {
+                const extractedImages = [];
+                let imageIndex = 0;
 
-            vscode.postMessage({ type: 'status', message: 'Scanning PDF for embedded images...' });
+                vscode.postMessage({ type: 'status', message: 'Scanning PDF for embedded images...' });
 
-            // PDF.js OPS constants
-            const OPS_paintJpegXObject = 82;
-            const OPS_paintImageXObject = 85;
-            const OPS_paintInlineImageXObject = 86;
-            const OPS_paintImageXObjectRepeat = 88;
+                // PDF.js OPS constants
+                const OPS_paintJpegXObject = 82;
+                const OPS_paintImageXObject = 85;
+                const OPS_paintInlineImageXObject = 86;
+                const OPS_paintImageXObjectRepeat = 88;
 
-            // Helper: convert any image source to a PNG data URL via canvas
-            function imageToDataUrl(source, width, height) {
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(source, 0, 0);
-                return canvas.toDataURL('image/png');
-            }
-
-            // Helper: convert raw pixel data to a PNG data URL
-            function rawDataToDataUrl(data, width, height) {
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                const imageData = ctx.createImageData(width, height);
-
-                const pixelCount = width * height;
-                const dataLength = data.length;
-
-                if (dataLength === pixelCount * 4) {
-                    // RGBA data
-                    imageData.data.set(data);
-                } else if (dataLength === pixelCount * 3) {
-                    // RGB data - add alpha channel
-                    for (let j = 0, k = 0; j < dataLength; j += 3, k += 4) {
-                        imageData.data[k]     = data[j];
-                        imageData.data[k + 1] = data[j + 1];
-                        imageData.data[k + 2] = data[j + 2];
-                        imageData.data[k + 3] = 255;
-                    }
-                } else {
-                    // Grayscale or other format
-                    const bytesPerPixel = dataLength / pixelCount;
-                    for (let j = 0; j < pixelCount; j++) {
-                        const gray = data[Math.floor(j * bytesPerPixel)];
-                        imageData.data[j * 4]     = gray;
-                        imageData.data[j * 4 + 1] = gray;
-                        imageData.data[j * 4 + 2] = gray;
-                        imageData.data[j * 4 + 3] = 255;
+                // Helper: convert any image source to a PNG data URL via canvas
+                function imageToDataUrl(source, width, height) {
+                    exportLimits.assertDimensions(width, height, 'Embedded image at native resolution');
+                    let canvas;
+                    try {
+                        canvas = document.createElement('canvas');
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        if (!ctx) exportLimits.fail('Unable to allocate the embedded image at native resolution.');
+                        ctx.drawImage(source, 0, 0);
+                        return canvas.toDataURL('image/png');
+                    } finally {
+                        if (canvas) { canvas.width = 0; canvas.height = 0; }
                     }
                 }
 
-                ctx.putImageData(imageData, 0, 0);
-                return canvas.toDataURL('image/png');
-            }
+                // Helper: convert raw pixel data to a PNG data URL
+                function rawDataToDataUrl(data, width, height) {
+                    exportLimits.assertDimensions(width, height, 'Embedded image at native resolution');
+                    let canvas;
+                    try {
+                        canvas = document.createElement('canvas');
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        if (!ctx) exportLimits.fail('Unable to allocate the embedded image at native resolution.');
+                        const imageData = ctx.createImageData(width, height);
 
-            // Helper: extract data URL from an imgData object (handles v5 ImageBitmap, raw data, and src)
-            function resolveImageData(imgData) {
-                if (!imgData) return null;
+                        const pixelCount = width * height;
+                        const dataLength = data.length;
 
-                let width  = imgData.width  || 0;
-                let height = imgData.height || 0;
+                        if (dataLength === pixelCount * 4) {
+                            // RGBA data
+                            imageData.data.set(data);
+                        } else if (dataLength === pixelCount * 3) {
+                            // RGB data - add alpha channel
+                            for (let j = 0, k = 0; j < dataLength; j += 3, k += 4) {
+                                imageData.data[k]     = data[j];
+                                imageData.data[k + 1] = data[j + 1];
+                                imageData.data[k + 2] = data[j + 2];
+                                imageData.data[k + 3] = 255;
+                            }
+                        } else {
+                            // Grayscale or other format
+                            const bytesPerPixel = dataLength / pixelCount;
+                            for (let j = 0; j < pixelCount; j++) {
+                                const gray = data[Math.floor(j * bytesPerPixel)];
+                                imageData.data[j * 4]     = gray;
+                                imageData.data[j * 4 + 1] = gray;
+                                imageData.data[j * 4 + 2] = gray;
+                                imageData.data[j * 4 + 3] = 255;
+                            }
+                        }
 
-                // PDF.js v5: ImageBitmap returned directly
-                if (typeof ImageBitmap !== 'undefined' && imgData instanceof ImageBitmap) {
-                    width = imgData.width;
-                    height = imgData.height;
-                    return { dataUrl: imageToDataUrl(imgData, width, height), width, height };
+                        ctx.putImageData(imageData, 0, 0);
+                        return canvas.toDataURL('image/png');
+                    } finally {
+                        if (canvas) { canvas.width = 0; canvas.height = 0; }
+                    }
                 }
 
-                // PDF.js v5: object with a .bitmap property (ImageBitmap)
-                if (imgData.bitmap && typeof ImageBitmap !== 'undefined' && imgData.bitmap instanceof ImageBitmap) {
-                    width  = imgData.bitmap.width  || width;
-                    height = imgData.bitmap.height || height;
-                    return { dataUrl: imageToDataUrl(imgData.bitmap, width, height), width, height };
+                // Helper: extract data URL from an imgData object (handles v5 ImageBitmap, raw data, and src)
+                function resolveImageData(imgData) {
+                    if (!imgData) return null;
+
+                    let width  = imgData.width;
+                    let height = imgData.height;
+
+                    // PDF.js v5: ImageBitmap returned directly
+                    if (typeof ImageBitmap !== 'undefined' && imgData instanceof ImageBitmap) {
+                        width = imgData.width;
+                        height = imgData.height;
+                        return { dataUrl: imageToDataUrl(imgData, width, height), width, height };
+                    }
+
+                    // PDF.js v5: object with a .bitmap property (ImageBitmap)
+                    if (imgData.bitmap && typeof ImageBitmap !== 'undefined' && imgData.bitmap instanceof ImageBitmap) {
+                        width  = imgData.bitmap.width;
+                        height = imgData.bitmap.height;
+                        return { dataUrl: imageToDataUrl(imgData.bitmap, width, height), width, height };
+                    }
+
+                    // Legacy: already a data URL (JPEG)
+                    if (imgData.src) {
+                        exportLimits.assertDimensions(width, height, 'Embedded image at native resolution');
+                        return { dataUrl: imgData.src, width, height };
+                    }
+
+                    // Legacy: raw pixel data
+                    if (imgData.data) {
+                        return { dataUrl: rawDataToDataUrl(imgData.data, width, height), width, height };
+                    }
+
+                    return null;
                 }
 
-                // Legacy: already a data URL (JPEG)
-                if (imgData.src) {
-                    return { dataUrl: imgData.src, width, height };
-                }
+                for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+                    let tmpCanvas;
+                    try {
+                        const page = await pdfDoc.getPage(pageNum);
 
-                // Legacy: raw pixel data
-                if (imgData.data && width && height) {
-                    return { dataUrl: rawDataToDataUrl(imgData.data, width, height), width, height };
-                }
+                        // Render page off-screen so PDF.js populates page.objs with image data.
+                        // Without this, objs may have been cleaned up since the initial render.
+                        let viewport = page.getViewport({ scale: 1.0 });
+                        const scanScale = exportLimits.scanScale(viewport.width, viewport.height);
+                        if (scanScale < 1) viewport = page.getViewport({ scale: scanScale });
+                        exportLimits.assertDimensions(viewport.width, viewport.height, 'Page ' + pageNum + ' image scan');
+                        tmpCanvas = document.createElement('canvas');
+                        tmpCanvas.width  = viewport.width;
+                        tmpCanvas.height = viewport.height;
+                        const tmpCtx = tmpCanvas.getContext('2d');
+                        if (!tmpCtx) exportLimits.fail('Unable to allocate the page image scan.');
+                        await page.render({ canvasContext: tmpCtx, viewport: viewport }).promise;
 
-                return null;
-            }
+                        const operatorList = await page.getOperatorList();
 
-            for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-                try {
-                    const page = await pdfDoc.getPage(pageNum);
+                        // Track already-processed XObject names to avoid duplicates on the same page
+                        const processedNames = new Set();
 
-                    // Render page off-screen so PDF.js populates page.objs with image data.
-                    // Without this, objs may have been cleaned up since the initial render.
-                    const viewport = page.getViewport({ scale: 1.0 });
-                    const tmpCanvas = document.createElement('canvas');
-                    tmpCanvas.width  = viewport.width;
-                    tmpCanvas.height = viewport.height;
-                    const tmpCtx = tmpCanvas.getContext('2d');
-                    await page.render({ canvasContext: tmpCtx, viewport: viewport }).promise;
+                        for (let i = 0; i < operatorList.fnArray.length; i++) {
+                            const fn = operatorList.fnArray[i];
 
-                    const operatorList = await page.getOperatorList();
+                            // --- XObject images (referenced by name in page.objs) ---
+                            if (fn === OPS_paintImageXObject || fn === OPS_paintJpegXObject || fn === OPS_paintImageXObjectRepeat) {
+                                const imgName = operatorList.argsArray[i][0];
+                                if (processedNames.has(imgName)) continue;
+                                processedNames.add(imgName);
 
-                    // Track already-processed XObject names to avoid duplicates on the same page
-                    const processedNames = new Set();
-
-                    for (let i = 0; i < operatorList.fnArray.length; i++) {
-                        const fn = operatorList.fnArray[i];
-
-                        // --- XObject images (referenced by name in page.objs) ---
-                        if (fn === OPS_paintImageXObject || fn === OPS_paintJpegXObject || fn === OPS_paintImageXObjectRepeat) {
-                            const imgName = operatorList.argsArray[i][0];
-                            if (processedNames.has(imgName)) continue;
-                            processedNames.add(imgName);
-
-                            try {
-                                let imgData = null;
-
-                                // Try synchronous get first (object already resolved after render)
                                 try {
-                                    imgData = page.objs.get(imgName);
-                                } catch {
-                                    // Fall back to callback-based get with timeout
-                                    imgData = await new Promise((resolve, reject) => {
-                                        const timer = setTimeout(() => reject(new Error('Timeout waiting for image ' + imgName)), 8000);
-                                        page.objs.get(imgName, (data) => {
-                                            clearTimeout(timer);
-                                            if (data) { resolve(data); }
-                                            else { reject(new Error('No data for ' + imgName)); }
+                                    let imgData = null;
+
+                                    // Try synchronous get first (object already resolved after render)
+                                    try {
+                                        imgData = page.objs.get(imgName);
+                                    } catch {
+                                        // Fall back to callback-based get with timeout
+                                        imgData = await new Promise((resolve, reject) => {
+                                            const timer = setTimeout(() => reject(new Error('Timeout waiting for image ' + imgName)), 8000);
+                                            page.objs.get(imgName, (data) => {
+                                                clearTimeout(timer);
+                                                if (data) { resolve(data); }
+                                                else { reject(new Error('No data for ' + imgName)); }
+                                            });
                                         });
-                                    });
-                                }
+                                    }
 
-                                const result = resolveImageData(imgData);
-                                if (result && result.width > 10 && result.height > 10) {
-                                    imageIndex++;
-                                    extractedImages.push({
-                                        index: imageIndex,
-                                        page: pageNum,
-                                        width: result.width,
-                                        height: result.height,
-                                        data: result.dataUrl
-                                    });
+                                    const result = resolveImageData(imgData);
+                                    if (result && result.width > 10 && result.height > 10) {
+                                        exportLimits.retainDataUrl(result.dataUrl);
+                                        imageIndex++;
+                                        extractedImages.push({
+                                            index: imageIndex,
+                                            page: pageNum,
+                                            width: result.width,
+                                            height: result.height,
+                                            data: result.dataUrl
+                                        });
+                                    }
+                                } catch (imgError) {
+                                    if (exportLimits.isResourceLimitError(imgError)) throw imgError;
+                                    console.warn('[PDF Toolkit] Failed to extract XObject image "' + imgName + '" on page ' + pageNum + ':', imgError);
                                 }
-                            } catch (imgError) {
-                                console.warn('[PDF Toolkit] Failed to extract XObject image "' + imgName + '" on page ' + pageNum + ':', imgError);
+                            }
+
+                            // --- Inline images (data embedded directly in the operator list) ---
+                            else if (fn === OPS_paintInlineImageXObject) {
+                                try {
+                                    const imgData = operatorList.argsArray[i][0];
+                                    if (!imgData) continue;
+
+                                    const result = resolveImageData(imgData);
+                                    if (result && result.width > 10 && result.height > 10) {
+                                        exportLimits.retainDataUrl(result.dataUrl);
+                                        imageIndex++;
+                                        extractedImages.push({
+                                            index: imageIndex,
+                                            page: pageNum,
+                                            width: result.width,
+                                            height: result.height,
+                                            data: result.dataUrl
+                                        });
+                                    }
+                                } catch (imgError) {
+                                    if (exportLimits.isResourceLimitError(imgError)) throw imgError;
+                                    console.warn('[PDF Toolkit] Failed to extract inline image on page ' + pageNum + ':', imgError);
+                                }
                             }
                         }
 
-                        // --- Inline images (data embedded directly in the operator list) ---
-                        else if (fn === OPS_paintInlineImageXObject) {
-                            try {
-                                const imgData = operatorList.argsArray[i][0];
-                                if (!imgData) continue;
-
-                                const result = resolveImageData(imgData);
-                                if (result && result.width > 10 && result.height > 10) {
-                                    imageIndex++;
-                                    extractedImages.push({
-                                        index: imageIndex,
-                                        page: pageNum,
-                                        width: result.width,
-                                        height: result.height,
-                                        data: result.dataUrl
-                                    });
-                                }
-                            } catch (imgError) {
-                                console.warn('[PDF Toolkit] Failed to extract inline image on page ' + pageNum + ':', imgError);
-                            }
-                        }
+                    } catch (pageError) {
+                        if (exportLimits.isResourceLimitError(pageError)) throw pageError;
+                        console.error('[PDF Toolkit] Error scanning page ' + pageNum + ':', pageError);
+                    } finally {
+                        if (tmpCanvas) { tmpCanvas.width = 0; tmpCanvas.height = 0; }
                     }
 
-                    // Free temporary canvas memory
-                    tmpCanvas.width = 0;
-                    tmpCanvas.height = 0;
-                } catch (pageError) {
-                    console.error('[PDF Toolkit] Error scanning page ' + pageNum + ':', pageError);
+                    // Update progress
+                    if (totalPages > 3) {
+                        vscode.postMessage({ type: 'status', message: 'Scanning page ' + pageNum + ' of ' + totalPages + '...' });
+                    }
                 }
 
-                // Update progress
-                if (totalPages > 3) {
-                    vscode.postMessage({ type: 'status', message: 'Scanning page ' + pageNum + ' of ' + totalPages + '...' });
-                }
+                exportLimits.waitForHost(extractionId);
+                vscode.postMessage({
+                    type: 'extractedImages',
+                    extractionId,
+                    images: extractedImages,
+                    totalFound: extractedImages.length
+                });
+                handedToHost = true;
+            } catch (error) {
+                vscode.postMessage({ type: 'error', message: error.message });
+            } finally {
+                if (!handedToHost) exportLimits.end(extractionId);
             }
-
-            vscode.postMessage({
-                type: 'extractedImages',
-                images: extractedImages,
-                totalFound: extractedImages.length
-            });
         }
 
         // Event listeners
@@ -2510,6 +2503,9 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                 case 'extractPages':
                     extractPagesAsImages(message.pages, message.quality, message.format);
                     break;
+                case 'extractionComplete':
+                    exportLimits.acknowledge(message.extractionId);
+                    break;
                 case 'prepareComposite':
                     prepareComposite(message);
                     break;
@@ -2561,13 +2557,13 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
         // Track current page based on scroll position
         container.addEventListener('scroll', () => {
             const containerRect = container.getBoundingClientRect();
-            for (let i = 0; i < pageCanvases.length; i++) {
-                const pageElement = document.getElementById('page-' + (i + 1));
+            for (const pageElement of container.querySelectorAll('.page-wrapper[data-page]')) {
+                const page = Number(pageElement.dataset.page);
                 if (pageElement) {
                     const rect = pageElement.getBoundingClientRect();
                     if (rect.top <= containerRect.top + 100 && rect.bottom > containerRect.top) {
-                        if (currentPage !== i + 1) {
-                            currentPage = i + 1;
+                        if (currentPage !== page) {
+                            currentPage = page;
                             pageInput.value = currentPage;
                         }
                         break;

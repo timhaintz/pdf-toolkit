@@ -77,6 +77,10 @@ PDF Toolkit helps you inspect a document and prepare the content you want to dis
 - **Text Selection**: Select and copy text directly from PDFs
 - **Dark Mode**: Toggle inverted colours for comfortable reading (🌙 button or `D` key)
 
+Pages load as you browse, with a bounded preview cache for long documents. Very
+large pages may use a lower-resolution preview; this does not change your chosen
+export quality or the native dimensions of extracted embedded images.
+
 ### Navigation and Zoom
 - **Zoom Controls**: Zoom in, zoom out, fit to width, and reset zoom
 - **Page Navigation**: Jump to any page using toolbar or keyboard
@@ -88,6 +92,9 @@ PDF Toolkit helps you inspect a document and prepare the content you want to dis
 - **Match Navigation**: Navigate between search matches with prev/next buttons or Enter key
 - **Match Counter**: See current match position and total count (e.g., "3 of 17")
 - **Outline/TOC Panel**: Toggle document outline sidebar to navigate via bookmarks (`O` key)
+
+Search covers the whole document, including pages outside the preview cache. Up
+to 10,000 matches are displayed; refine the query if that limit is reached.
 
 ### Export Pages as Images (Screenshots)
 - **Screenshot Menu**: Click the 📷 Screenshot button for quick access to all export options
@@ -233,6 +240,13 @@ When you extract pages, they are saved to a `PDF-Screenshots/<pdf-name>/` folder
 - Browse previously extracted PDFs via the **📁 Extracted** button
 - Attach all saved images or choose individual files for Copilot Chat
 - Manage your extraction history
+
+Ordinary page and embedded-image exports are limited to 8,192 pixels per side
+and 32 million pixels per image, with a bounded amount of image data per export.
+If an operation exceeds these limits, it stops with guidance to choose fewer
+pages or a lower screenshot resolution. Requested screenshot quality and native
+embedded-image sizes are preserved for supported exports. Unusual PDF names
+that would produce a dot-only output folder use a safe `document` subfolder.
 
 ### Composite Screenshots
 
