@@ -96,6 +96,11 @@ function readRenderedPng(filename, probes) {
 }
 
 exports.run = async function run() {
+    const expectedVersion = process.env.PDF_TOOLKIT_TEST_VSCODE_VERSION;
+    if (expectedVersion) {
+        assert.equal(vscode.version, expectedVersion,
+            'The running VS Code must match the requested version; restore the cached build if it was updated');
+    }
     const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     assert.ok(workspace, 'An isolated fixture workspace is open');
     for (const [key, expected] of Object.entries({
