@@ -2,7 +2,7 @@
   "name": "pdf-toolkit",
   "displayName": "PDF Toolkit",
   "description": "View PDFs, export selected pages and extract embedded raster images. Prepare the content you need for your AI coding workflow and attach it to GitHub Copilot Chat.",
-  "version": "2.4.1",
+  "version": "3.0.0",
   "publisher": "TimHaintz",
   "author": {
     "name": "Tim Haintz",
@@ -171,7 +171,7 @@
     "typescript": "^5.7.0"
   },
   "dependencies": {
-    "pdfjs-dist": "^5.4.530"
+    "pdfjs-dist": "^6.4.299"
   },
   "overrides": {
     "@eslint/config-array@^0.23.5": {

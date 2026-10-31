@@ -225,8 +225,8 @@ test('webview loads local PDF.js assets and authorizes its script with a CSP non
     assert.equal(nonce.length, 32);
     assert.ok(html.includes(`script-src 'nonce-${nonce}' 'wasm-unsafe-eval' blob:`));
     assert.ok(!html.includes("'unsafe-eval'"), 'JavaScript evaluation remains disabled');
-    assert.ok(html.includes(`import * as pdfjsLib from '${webviewUrl(fixturePath('extension', 'node_modules', 'pdfjs-dist', 'build', 'pdf.min.mjs'))}'`));
-    assert.ok(html.includes(`workerSrc = '${webviewUrl(fixturePath('extension', 'node_modules', 'pdfjs-dist', 'build', 'pdf.worker.min.mjs'))}'`));
+    assert.ok(html.includes(`import * as pdfjsLib from '${webviewUrl(fixturePath('extension', 'node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.min.mjs'))}'`));
+    assert.ok(html.includes(`workerSrc = '${webviewUrl(fixturePath('extension', 'node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.worker.min.mjs'))}'`));
     assert.ok(html.includes(`getDocument({ url: pdfUrl, wasmUrl: '${webviewUrl(fixturePath('extension', 'node_modules', 'pdfjs-dist', 'wasm'))}/' })`));
     const pdfUrl = webviewUrl(fixturePath('documents', 'report #1.pdf'));
     assert.ok(html.includes(`const pdfUrl = '${pdfUrl}'`));

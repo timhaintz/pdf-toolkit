@@ -20,7 +20,7 @@ suite exercises an actual VS Code process and PDF.js rendering.
 
 ## VS Code compatibility policy
 
-The next release requires **VS Code 1.118.1 or newer**. When preparing a release,
+PDF Toolkit 3.0 requires **VS Code 1.118.1 or newer**. When preparing a release,
 review the minimum using an approximately six-month window: select a stable
 version available around six months before that release, align `engines.vscode`
 and `@types/vscode`, and test both the minimum and latest stable VS Code. Keep
@@ -38,6 +38,34 @@ At a future compatibility review, update the manifest, lockfile, README,
 publishing examples and changelog together. CI derives the minimum test version
 from the manifest. Document the raised requirement before publishing a new
 versioned VSIX; merging this change does not change the published 2.4.1 package.
+
+## PDF.js upgrades
+
+Review upstream API, browser and Node requirements against the selected minimum
+VS Code before upgrading the bundled renderer. Use PDF.js's official `legacy`
+compatibility build for both the main library and worker: the modern 6.4 build
+requires native `Map.getOrInsertComputed` support that the minimum host lacks.
+The compatibility build remains the same PDF.js version and supplies the
+required polyfills. See [upstream browser support](https://github.com/mozilla/pdf.js/wiki/Frequently-Asked-Questions#which-browsersenvironments-are-supported).
+Compare the copied text-layer
+styles with `node_modules/pdfjs-dist/web/pdf_viewer.css`, and check the image
+operators and decoder outputs used by extraction. PDF.js 6 can supply JPEGs as
+`VideoFrame` objects: use their display dimensions, preserve the existing image
+allocation limits, and leave PDF.js-owned frames open for its renderer to reuse.
+
+Run source and installed-VSIX integration on the minimum and latest stable VS
+Code. Retain JPEG 2000/WASM, native image extraction, full-document search, text
+alignment, navigation and resource-boundary coverage. Include real JPEG, Flate
+RGB and inline image extraction so that a decoder change cannot silently drop
+ordinary embedded photos while the JPEG 2000 fixture still passes.
+
+Repeat the affected manual checks below using representative text and photo
+PDFs. The ignored public TraceMonkey and Artemis inputs recorded in earlier QA
+are useful for embedded fonts, selection/search, outline navigation and native
+photo dimensions. Check PNG/JPEG screenshots, composites and duplicate-export
+choices in the installed candidate as well as viewer behavior. Keep test
+artifacts separate from the previously released VSIX, and record actual host
+versions and any untested font/image families.
 
 ## Try changes interactively
 
@@ -282,7 +310,7 @@ plus in-flight preview rasters to 24 million pixels per panel. These are
 application-owned preview limits; they do not bound all PDF.js decoder/cache or
 browser memory. Stable virtual placeholders preserve long-document navigation.
 Search scans pages sequentially, retaining at most 10,000 match positions. It
-indexes at most 100,001 text items per page, matching the bundled PDF.js 5.4
+indexes at most 100,001 text items per page, matching the bundled PDF.js
 text-layer limit, and ignores highlights outside the available rendered items.
 
 Use the generated native security fixtures alongside the standard five-page
@@ -745,3 +773,71 @@ higher version and finish release preparation before uploading. Record final
 PR/head CI and minimum/latest outcomes in the PR conversation. Automated
 integration does not establish Copilot/model behavior or Windows manual visual
 coverage.
+
+### PDF.js 6 upgrade: 1 November 2026
+
+Updated PDF.js 5.4.530 to 6.4.299 while retaining the six-month VS Code 1.118.1
+minimum and Node 22 toolchain. Review found two concrete integration changes:
+Chrome's JPEG ImageDecoder path can return PDF.js-owned VideoFrames, and the
+modern build requires Map methods absent from the minimum host. Support direct
+and wrapped frames using display dimensions without closing them, and use both
+official legacy/compatibility entry points with the shared root WASM assets.
+
+Lint, all 135 Node tests, dependency audit (zero reported vulnerabilities), asset
+validation and separate VSIX packaging passed on macOS 27.0.1 / Node 22.22.2.
+The new unit cases reproduced skipped frames before the fix and now cover
+reuse, deduplication, draw failures, missing constructors and resource limits.
+
+Fresh-profile source and installed-VSIX runs passed on actual VS Code 1.118.1:
+414 toolbar and 99 browser resource/search/raster assertions per mode, with no
+explicit focusin handler events in this final run, plus existing rendering,
+JPEG 2000, screenshot, composite and multiple-PDF tests. The new original
+Flate/inline/JPEG fixture verifies preview colors and every pixel of three native
+16×16 exported PNGs. Both modes recorded one native-size VideoFrame draw,
+confirming that the real JPEG decoder path is exercised.
+
+CI exposed a race in that new fixture: an allocated canvas and empty text layer
+can exist before asynchronous JPEG rendering finishes. Wait for PDF.js's
+`data-main-rotation` text-layer attribute, set only by the post-raster
+constructor, before probing pixels. Keep the bounded wait and all pixel, image
+count and native-dimension assertions intact.
+
+An initial installed-profile toolbar fixture hit its outer 90-second startup
+limit without a browser error or result. Preserve that log alongside the
+successful fresh-profile rerun of the same unchanged VSIX; do not count the
+timeout as a successful run. Final minimum/latest Linux/Windows CI and visible
+text/photo/JPEG/duplicate-export outcomes are recorded in [PR #19](https://github.com/timhaintz/pdf-toolkit/pull/19)
+before conditional merge.
+
+Test-only artifact: `artifacts/pdf-toolkit-2.4.1-pr19-pdfjs6-candidate.vsix`, SHA256
+`ed98645ae1d4cb4c99207ba9fd7984699cdaf21df0d01d705e682ee4211a9d1c`.
+Its 554 packaged PDF.js assets match installed 6.4.299, and both legacy modules
+are the same version. The modern-build candidate that failed the minimum host
+is archived. The previously published 2.4.1 VSIX remains unchanged. Bundle this
+work with the compatibility-policy update in a higher-versioned release; test
+that final VSIX before manual Marketplace upload.
+
+### 3.0.0 release preparation: 1 November 2026
+
+Release 3.0.0 combines PR #18 (merge `9e511606d7ec967034efd235a459f1bc8016564c`)
+and PR #19 (merge `1343a3de92183fa71e22ce794749fa77587a2077`). The major version
+makes the increased minimum host requirement explicit: VS Code 1.118.1 replaces
+1.96.0. The 1 November compatibility review still applies; no further minimum
+change is needed for this release. The dated changelog includes both PRs and
+has no empty Unreleased section.
+
+Release preparation changes only manifest/lockfile version metadata and
+documentation. Local lint, all 135 Node tests and dependency audit (zero reported
+vulnerabilities) passed on macOS 27.0.1 / Node 22.22.2. Preserve the installed-VSIX
+visual results above by comparing every compiled runtime and bundled PDF.js asset
+with the tested PR #19 candidate. Verify the final 3.0.0 installed manifest and
+run source plus installed-package integration on the minimum host, alongside
+minimum/latest Linux/Windows CI and CodeQL for the release head.
+
+Record final release/merge commits, CI results, package size, SHA256 and package
+comparison in the release PR and ignored
+`.vscode-test/release-3.0.0-2026-11-01/` evidence. The handoff file is
+`artifacts/pdf-toolkit-3.0.0.vsix`; preserve that exact tested file and the previous
+published 2.4.1 VSIX. Upload remains manual, with Marketplace verification and
+post-upload checks performed separately. Existing coverage limits for CJK fonts,
+Windows manual visual testing and Copilot/model behavior still apply.
