@@ -146,10 +146,17 @@ function browserChecks() {
             const clip = rect(byId('pdf-container'));
             check(selected.length > 0 && selected.every(element => byId(`page-${pageNumber}`).contains(element)),
                 `${label}: the selected match belongs to page ${pageNumber}`);
-            await waitFor(() => {
-                const bounds = rect(selected[0]);
-                return bounds.top >= clip.top - 1 && bounds.bottom <= clip.bottom + 1;
-            }, `${label}: smooth scrolling brings the matched text into view`);
+            try {
+                await waitFor(() => {
+                    const bounds = rect(selected[0]);
+                    return bounds.top >= clip.top - 1 && bounds.bottom <= clip.bottom + 1;
+                }, `${label}: smooth scrolling brings the matched text into view`);
+            } catch (error) {
+                const live = doc.querySelector('.textLayer .highlight.selected');
+                fail(`${error.message}; match metrics: ${JSON.stringify({ connected: selected[0].isConnected,
+                    captured: rect(selected[0]).toJSON(), live: live && rect(live).toJSON(), clip: clip.toJSON(),
+                    scrollTop: byId('pdf-container').scrollTop, page: page.value })}`);
+            }
             const bounds = rect(selected[0]);
             check(bounds.top >= clip.top - 1 && bounds.bottom <= clip.bottom + 1,
                 `${label}: matched text is visible in the actual PDF viewport`,

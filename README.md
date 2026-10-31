@@ -94,7 +94,8 @@ export quality or the native dimensions of extracted embedded images.
 - **Outline/TOC Panel**: Toggle document outline sidebar to navigate via bookmarks (`O` key)
 
 Search covers the whole document, including pages outside the preview cache. Up
-to 10,000 matches are displayed; refine the query if that limit is reached.
+to 10,000 matches are displayed; refine the query if that limit is reached. On
+exceptionally dense pages, search covers the text that PDF.js can display.
 
 ### Export Pages as Images (Screenshots)
 - **Screenshot Menu**: Click the 📷 Screenshot button for quick access to all export options

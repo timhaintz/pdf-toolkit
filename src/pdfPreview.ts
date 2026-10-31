@@ -69,7 +69,6 @@ export function setupPdfPreview(options: PdfPreviewOptions): {
     }
     let disposed = false;
     let generation = 0;
-    let navigation = 0;
     let count = 0;
     let center = 1;
     let first = 1;
@@ -214,7 +213,9 @@ export function setupPdfPreview(options: PdfPreviewOptions): {
         if (changed) container.replaceChildren(topSpacer, ...Array.from(entries.values()).sort((a, b) => a.page - b.page).map(entry => entry.wrapper), bottomSpacer);
         if (preservePosition && oldAnchor !== undefined) {
             const newAnchor = entries.get(page)!.wrapper.getBoundingClientRect().top;
-            container.scrollTop += newAnchor - oldAnchor;
+            const correction = newAnchor - oldAnchor;
+            // Even assigning the existing scrollTop cancels native smooth scrolling.
+            if (correction !== 0) container.scrollTop += correction;
         } else if (preservePosition && changed) {
             entries.get(page)!.wrapper.scrollIntoView({ block: 'start' });
         }
@@ -230,7 +231,10 @@ export function setupPdfPreview(options: PdfPreviewOptions): {
         heights.set(entry.page, { width: viewport.width, height: viewport.height + labelHeight });
         if (heights.size > 512) heights.delete(heights.keys().next().value!);
         updateSpacers();
-        if (anchor && oldTop !== undefined) container.scrollTop += anchor.getBoundingClientRect().top - oldTop;
+        if (anchor && oldTop !== undefined) {
+            const correction = anchor.getBoundingClientRect().top - oldTop;
+            if (correction !== 0) container.scrollTop += correction;
+        }
     }
     function reserve(entry: Entry, area: number): boolean {
         const victims = Array.from(entries.values()).filter(other => other !== entry && other.pixels > 0 && other.state === 'ready')
@@ -370,20 +374,23 @@ export function setupPdfPreview(options: PdfPreviewOptions): {
         const entry = entries.get(page)!;
         if (entry.state === 'idle') schedule();
         await entry.done;
+        // Neighbor measurements can move the target and require scroll-anchor
+        // corrections. Finish this bounded window before consumers center text
+        // with native smooth scrolling, which such corrections would cancel.
+        if (current(entry)) await Promise.all(Array.from(entries.values(), item => item.done));
     }
     async function scrollToPage(page: number): Promise<void> {
         if (disposed || !validPage(page)) return;
-        const request = ++navigation;
         windowAround(page);
         const entry = entries.get(page)!;
         entry.wrapper.scrollIntoView({ block: 'start' });
+        // Measurement preserves the mounted anchor while rendering. Do not scroll
+        // again afterwards: the user may have moved to another page meanwhile.
         await ensurePage(page);
-        if (request === navigation && current(entry)) entry.wrapper.scrollIntoView({ block: 'start' });
     }
     async function reset(): Promise<void> {
         if (disposed) return;
         generation++;
-        navigation++;
         queue = [];
         for (const entry of entries.values()) remove(entry);
         container.replaceChildren();
@@ -407,7 +414,6 @@ export function setupPdfPreview(options: PdfPreviewOptions): {
         if (disposed) return;
         disposed = true;
         generation++;
-        navigation++;
         queue = [];
         if (frame) cancelAnimationFrame(frame);
         container.removeEventListener('scroll', onScroll);

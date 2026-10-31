@@ -241,6 +241,9 @@ each raster to 8 million pixels and 8,192 pixels per dimension, and limits resid
 plus in-flight preview rasters to 24 million pixels per panel. These are
 application-owned preview limits; they do not bound all PDF.js decoder/cache or
 browser memory. Stable virtual placeholders preserve long-document navigation.
+Search scans pages sequentially, retaining at most 10,000 match positions. It
+indexes at most 100,001 text items per page, matching the bundled PDF.js 5.4
+text-layer limit, and ignores highlights outside the available rendered items.
 
 Use the generated native security fixtures alongside the standard five-page
 fixtures. Verify the following in both source and actual installed-package
@@ -250,6 +253,7 @@ integration, and repeat the affected visible checks in a disposable profile:
 | --- | --- |
 | Many mixed-size pages, distant jumps, scrolling, and repeated zoom | Mounted wrappers, text layers and resident/in-flight raster pixels remain within their bounds; later pages render and prior resources are released. |
 | A search term found only on a late, initially unrendered page | Full-document search finds it, loads that page, and shows the selected highlight at the actual text position. Clearing/replacing a query or navigating again prevents stale completion from moving the view. |
+| Manual scrolling during a slow render/search; text beyond the PDF.js text-layer limit | Delayed navigation does not pull the viewport back. Dense text cannot create inaccessible matches or throw during highlighting; normal cross-item matches remain selectable. |
 | Large page dimensions or PDF `/UserUnit` | Preview backing stores are capped before allocation while display/text geometry remains aligned. Unsupported export sizes report a controlled error before unsafe allocation. |
 | Normal PNG/JPEG, embedded raster and composite exports | Existing quality, dimensions, pixel content, page ordering, labels and duplicate decisions remain correct. A bounded embedded-image scan must preserve supported native bitmap dimensions. |
 | Oversized ordinary/embedded batch or overlapping requests | No partial batch is written; the resource guard recovers after failure. One bounded batch remains active until host handling acknowledges completion. |

@@ -407,3 +407,31 @@ test('late navigation completion cannot scroll back over a newer page request', 
     assert.equal(h.stats.scrolls.at(-1), 'page-3');
     h.preview.dispose();
 });
+
+test('late page navigation does not undo manual scrolling to an adjacent mounted page', async t => {
+    const gate = deferred();
+    const h = harness({ render: number => number === 2 ? gate.promise : undefined });
+    t.after(() => h.preview.dispose());
+    const initial = h.preview.reset();
+    await tick();
+    assert.equal(h.renders.at(-1).number, 2);
+    assert.equal(h.published.has(2), false, 'The navigation target must still be rendering');
+
+    const navigation = h.preview.scrollToPage(2);
+    await tick();
+    assert.equal(h.stats.scrolls.at(-1), 'page-2');
+    const adjacent = h.wrappers().find(wrapper => wrapper.id === 'page-3');
+    assert.ok(adjacent, 'Manual scrolling stays within the mounted page window');
+    const manualOffset = h.container.scrollTop + adjacent.getBoundingClientRect().top - 20;
+    await h.scrollToOffset(manualOffset);
+    assert.equal(adjacent.getBoundingClientRect().top, 20);
+    const programmaticScrollCount = h.stats.scrolls.length;
+
+    gate.resolve();
+    await Promise.all([initial, navigation]);
+    assert.equal(h.published.has(2), true, 'The old target still finishes rendering');
+    assert.equal(h.stats.scrolls.length, programmaticScrollCount,
+        'Completing the old navigation must not issue another programmatic scroll');
+    assert.equal(h.container.scrollTop, manualOffset, 'The viewport must remain at the manually chosen adjacent page');
+    assert.equal(adjacent.getBoundingClientRect().top, 20);
+});

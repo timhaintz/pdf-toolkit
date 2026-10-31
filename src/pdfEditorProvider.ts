@@ -1731,7 +1731,9 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                     continue;
                 }
                 if (generation !== searchGeneration) return;
-                const strings = textContent.items.filter(item => typeof item.str === 'string').map(item => item.str);
+                // PDF.js 5.4 TextLayer creates at most 100,001 text divs per page.
+                // Search the same renderable range, including empty text items.
+                const strings = textContent.items.filter(item => typeof item.str === 'string').slice(0, 100001).map(item => item.str);
                 let pageText = '';
                 const offsets = [];
                 for (const text of strings) {
@@ -1801,6 +1803,9 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                 // Build a map: divIdx -> array of { start, end, globalIndex, cssClass }
                 const divHighlights = {};
                 matches.forEach(function(match) {
+                    // A canceled or capped text layer may not contain every item.
+                    if (match.startDivIdx < 0 || match.endDivIdx >= textDivs.length ||
+                        match.endDivIdx >= textContentItemsStr.length) return;
                     for (let d = match.startDivIdx; d <= match.endDivIdx; d++) {
                         if (!divHighlights[d]) divHighlights[d] = [];
                         const divText = textContentItemsStr[d];
@@ -1940,6 +1945,16 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             updateSearchResults();
         }
 
+        function cancelPendingMatchNavigation() {
+            matchNavigationGeneration++;
+        }
+
+        // User scroll intent cancels delayed search jumps. Programmatic scroll
+        // events also fire during smooth scrolling and must not cancel it.
+        container.addEventListener('wheel', cancelPendingMatchNavigation, { passive: true });
+        container.addEventListener('touchstart', cancelPendingMatchNavigation, { passive: true });
+        container.addEventListener('pointerdown', cancelPendingMatchNavigation);
+
         // Outline functions
         async function loadOutline() {
             const outlineContent = document.getElementById('outline-content');
@@ -2006,11 +2021,13 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
 
         async function updateZoom(newScale) {
             const generation = ++zoomGeneration;
-            matchNavigationGeneration++;
+            const queryGeneration = searchGeneration;
+            const navigationAtStart = ++matchNavigationGeneration;
             currentScale = Math.max(0.25, Math.min(5.0, newScale));
             zoomDisplay.value = Math.round(currentScale * 100) + '%';
             await renderAllPages();
-            if (generation === zoomGeneration && currentMatchIndex >= 0) await goToCurrentMatch();
+            if (generation === zoomGeneration && queryGeneration === searchGeneration &&
+                navigationAtStart === matchNavigationGeneration && currentMatchIndex >= 0) await goToCurrentMatch();
         }
 
         function scrollToPage(pageNum) {
@@ -2531,6 +2548,8 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
 
             // Skip other shortcuts if user is typing in an input
             if (e.target.tagName === 'INPUT' || e.target.closest('[role="menu"], #toolbar-overflow')) return;
+
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === ' ') cancelPendingMatchNavigation();
 
             if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
                 if (currentPage > 1) scrollToPage(currentPage - 1);
