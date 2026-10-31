@@ -5,7 +5,11 @@ All notable changes to PDF Toolkit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.4.1] - 2026-10-31
+
+### Changed
+
+- Update development and packaging dependencies to address known advisories, and schedule Dependabot checks for npm dependencies and GitHub Actions.
 
 ### Fixed
 
