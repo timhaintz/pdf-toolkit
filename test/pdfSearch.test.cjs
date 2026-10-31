@@ -210,10 +210,13 @@ test('wheel navigation intent during text search keeps results without later aut
 
 test('wheel navigation intent while a search target is rendering suppresses its late scroll', async () => {
     const gate = deferred();
-    const h = harness({ strings: () => ['needle'], mountOnEnsure: true, ensurePage: () => gate.promise });
+    const h = harness({ count: 2, strings: number => number === 2 ? ['needle'] : ['ordinary page'],
+        mountOnEnsure: true, ensurePage: () => gate.promise });
     const searching = h.api.performSearch('needle');
     await tick();
-    assert.deepEqual(h.ensured, [1]);
+    assert.deepEqual(h.ensured, [2]);
+    assert.equal(h.state().currentPage, 2);
+    assert.equal(h.state().pageInput.value, 2, 'The target indicator updates immediately while its page is loading');
     h.wheelIntent();
     gate.resolve();
     await searching;

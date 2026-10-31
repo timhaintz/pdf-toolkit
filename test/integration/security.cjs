@@ -279,7 +279,12 @@ function browserSecurityChecks() {
                 doc.querySelector('#page-50 .highlight.selected'), 'full-document search finds page fifty outside the preview cache');
             await waitFor(() => visible(doc.querySelector('#page-50 .highlight.selected')),
                 'late-page selected match is visible in the real viewport');
-            check(byId('page-input').value === '50', 'Offscreen search updates native page navigation to page fifty');
+            // After centering, the scroll tracker reports the leading visible
+            // page, which can be 49 while page 50's heading is visible. Immediate
+            // search navigation state is checked separately in search tests.
+            const selectedText = [...doc.querySelectorAll('#page-50 .highlight.selected')]
+                .map(element => element.textContent).join('');
+            check(selectedText === scenario.query, 'The visible offscreen search highlight contains the requested text', { selectedText });
             sample('offscreen search selected and visible');
             await assertTextAlignment(50, 0, 'offscreen selected search text');
             // As in toolbar.cjs, let Chromium finish search's smooth centering
