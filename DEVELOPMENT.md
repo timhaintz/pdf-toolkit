@@ -20,7 +20,7 @@ suite exercises an actual VS Code process and PDF.js rendering.
 
 ## VS Code compatibility policy
 
-The next release requires **VS Code 1.118.1 or newer**. When preparing a release,
+PDF Toolkit 3.0 requires **VS Code 1.118.1 or newer**. When preparing a release,
 review the minimum using an approximately six-month window: select a stable
 version available around six months before that release, align `engines.vscode`
 and `@types/vscode`, and test both the minimum and latest stable VS Code. Keep
@@ -816,3 +816,28 @@ are the same version. The modern-build candidate that failed the minimum host
 is archived. The previously published 2.4.1 VSIX remains unchanged. Bundle this
 work with the compatibility-policy update in a higher-versioned release; test
 that final VSIX before manual Marketplace upload.
+
+### 3.0.0 release preparation: 1 November 2026
+
+Release 3.0.0 combines PR #18 (merge `9e511606d7ec967034efd235a459f1bc8016564c`)
+and PR #19 (merge `1343a3de92183fa71e22ce794749fa77587a2077`). The major version
+makes the increased minimum host requirement explicit: VS Code 1.118.1 replaces
+1.96.0. The 1 November compatibility review still applies; no further minimum
+change is needed for this release. The dated changelog includes both PRs and
+has no empty Unreleased section.
+
+Release preparation changes only manifest/lockfile version metadata and
+documentation. Local lint, all 135 Node tests and dependency audit (zero reported
+vulnerabilities) passed on macOS 27.0.1 / Node 22.22.2. Preserve the installed-VSIX
+visual results above by comparing every compiled runtime and bundled PDF.js asset
+with the tested PR #19 candidate. Verify the final 3.0.0 installed manifest and
+run source plus installed-package integration on the minimum host, alongside
+minimum/latest Linux/Windows CI and CodeQL for the release head.
+
+Record final release/merge commits, CI results, package size, SHA256 and package
+comparison in the release PR and ignored
+`.vscode-test/release-3.0.0-2026-11-01/` evidence. The handoff file is
+`artifacts/pdf-toolkit-3.0.0.vsix`; preserve that exact tested file and the previous
+published 2.4.1 VSIX. Upload remains manual, with Marketplace verification and
+post-upload checks performed separately. Existing coverage limits for CJK fonts,
+Windows manual visual testing and Copilot/model behavior still apply.

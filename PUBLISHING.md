@@ -2,8 +2,11 @@
 
 This guide covers the complete process from setting up your publisher account to publishing and updating the extension.
 
-The current published release is **2.4.1**. Changes under **Unreleased**, including
-the VS Code 1.118.1 minimum, need a new versioned and tested VSIX before upload.
+Release **3.0.0** bundles PRs #18 and #19 and requires **VS Code 1.118.1 or newer**.
+Its dated changelog and version metadata are included in the package. Upload
+`artifacts/pdf-toolkit-3.0.0.vsix` only after its final package checks pass. The
+previously published **2.4.1** VSIX is retained for recovery; packaging and merging
+release changes do not publish to Marketplace.
 PDF Toolkit uses the existing
 **TimHaintz** publisher and **PDF Toolkit** extension. The default update path is
 to build and test a VSIX, then upload that exact file manually as described in
