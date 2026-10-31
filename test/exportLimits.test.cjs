@@ -21,6 +21,17 @@ class FakeImageBitmap {
     constructor(width, height) { this.width = width; this.height = height; }
 }
 
+class FakeVideoFrame {
+    constructor(displayWidth, displayHeight) {
+        this.displayWidth = displayWidth;
+        this.displayHeight = displayHeight;
+        this.codedWidth = displayWidth + 16;
+        this.codedHeight = displayHeight + 16;
+        this.closed = false;
+    }
+    close() { this.closed = true; }
+}
+
 function createHarness(config = {}) {
     const messages = [];
     const canvases = [];
@@ -114,6 +125,7 @@ function createHarness(config = {}) {
             pdfDoc, totalPages: config.totalPages ?? 1,
             document: { createElement(tag) { assert.equal(tag, 'canvas'); return new Canvas(); } },
             ImageBitmap: FakeImageBitmap,
+            VideoFrame: config.withoutVideoFrame ? undefined : FakeVideoFrame,
             vscode: {
                 postMessage(message) {
                     if (config.postMessage) config.postMessage(message);
@@ -347,6 +359,44 @@ test('large poster pages use a bounded scan canvas while extracted bitmaps keep 
     h.assertReleased();
 });
 
+test('native JPEG VideoFrames export direct and wrapped display dimensions without consuming PDF.js frames', async () => {
+    const direct = new FakeVideoFrame(28, 16);
+    const wrapped = new FakeVideoFrame(30, 18);
+    const h = createHarness({
+        operators: () => ({ fnArray: [85, 86, 88], argsArray: [['jpeg'], [{ width: 999, height: 999, bitmap: wrapped }], ['jpeg']] }),
+        object: () => direct,
+        draw(source) { assert.equal(source.closed, false, 'PDF.js-owned frames must remain reusable'); }
+    });
+    for (let attempt = 0; attempt < 2; attempt++) {
+        await h.api.extractEmbeddedImages();
+        const result = h.results()[attempt];
+        assert.equal(result.totalFound, 2, 'Both ImageDecoder forms must be extracted, with repeated XObjects deduplicated');
+        assert.deepEqual(result.images.map(({ width, height }) => [width, height]), [[28, 16], [30, 18]]);
+        assert.equal(direct.closed, false);
+        assert.equal(wrapped.closed, false);
+        h.assertReleased();
+    }
+    assert.deepEqual(h.encodings.map(({ width, height }) => [width, height]), [[28, 16], [30, 18], [28, 16], [30, 18]]);
+    assert.equal(h.warnings.length, 0);
+    const failing = createHarness({ images: () => [direct], draw() { throw new Error('Image drawing failed'); } });
+    await failing.api.extractEmbeddedImages();
+    assert.equal(failing.results()[0].totalFound, 0);
+    assert.equal(failing.warnings.length, 1);
+    assert.equal(direct.closed, false, 'A failed export must not close a PDF.js-owned frame');
+    failing.assertReleased();
+});
+
+test('ImageBitmap and raw extraction remain available when VideoFrame is not exposed', async () => {
+    const bitmap = new FakeImageBitmap(24, 12);
+    const raw = { width: 12, height: 11, data: new Uint8Array(12 * 11 * 3).fill(77) };
+    const h = createHarness({ withoutVideoFrame: true, images: () => [bitmap, raw] });
+    await h.api.extractEmbeddedImages();
+    assert.equal(h.results()[0].totalFound, 2);
+    assert.deepEqual(h.encodings.map(({ width, height }) => [width, height]), [[24, 12], [12, 11]]);
+    assert.equal(h.warnings.length, 0);
+    h.assertReleased();
+});
+
 test('invalid embedded scan geometry aborts before allocating a scan canvas', async () => {
     for (const [width, height] of [[Infinity, 100], [100, NaN], [0, 100], [100, -1]]) {
         const h = createHarness({ totalPages: 3, viewport: () => ({ width, height }) });
@@ -361,6 +411,12 @@ test('oversized and invalid native images abort both inline and XObject extracti
     for (const image of [
         new FakeImageBitmap(8193, 20),
         { bitmap: new FakeImageBitmap(20, 8193) },
+        new FakeVideoFrame(8193, 20),
+        { bitmap: new FakeVideoFrame(20, 8193) },
+        { width: 20, height: 20, bitmap: new FakeVideoFrame(8001, 4000) },
+        new FakeVideoFrame(Infinity, 20),
+        new FakeVideoFrame(NaN, 20),
+        new FakeVideoFrame(0, 20),
         { width: 8001, height: 4000, data: [] },
         { width: 20, height: Infinity, data: [] },
         { width: NaN, height: 20, src: imageUrl },
@@ -379,6 +435,8 @@ test('oversized and invalid native images abort both inline and XObject extracti
             assert.deepEqual(h.requests, [1]);
             assert.equal(h.canvases.length, 1, 'Only the bounded scan canvas is created');
             assert.equal(h.pixelBuffers.length, 0);
+            const frame = image instanceof FakeVideoFrame ? image : image.bitmap;
+            if (frame instanceof FakeVideoFrame) assert.equal(frame.closed, false, 'A resource rejection must not consume a frame');
         }
     }
 });

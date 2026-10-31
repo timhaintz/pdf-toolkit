@@ -659,8 +659,8 @@ exports.testToolbar = async function testToolbar(extension, workspace) {
         });
     const resource = (...segments) => panel.webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, ...segments));
     let html = provider.getHtmlContent(panel.webview,
-        resource('node_modules', 'pdfjs-dist', 'build', 'pdf.min.mjs'),
-        resource('node_modules', 'pdfjs-dist', 'build', 'pdf.worker.min.mjs'),
+        resource('node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.min.mjs'),
+        resource('node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.worker.min.mjs'),
         resource('node_modules', 'pdfjs-dist', 'wasm'),
         panel.webview.asWebviewUri(vscode.Uri.file(path.join(workspace, 'sample.pdf'))),
         resource('images', 'icon.png'));

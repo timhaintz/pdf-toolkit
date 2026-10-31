@@ -1,9 +1,11 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { inflateSync } = require('node:zlib');
 const vscode = require('vscode');
 const { createSecurityPdf, LATE_SEARCH_TERM } = require('../fixtures/createSecurityPdf.cjs');
 const { createJpxPdf } = require('../fixtures/createJpxPdf.cjs');
+const { createRasterPdf, RASTER_IMAGES, RASTER_PAGE_SIZE, RASTER_PREVIEW_PROBES } = require('../fixtures/createRasterPdf.cjs');
 
 const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
@@ -16,6 +18,16 @@ function installCanvasBoundary() {
     let allocations = 0;
     let peakCanvasPixels = 0;
     let peakAllCanvasPixels = 0;
+    let videoFrameDraws = 0;
+    let nativeVideoFrameDraws = 0;
+    const originalDrawImage = CanvasRenderingContext2D.prototype.drawImage;
+    CanvasRenderingContext2D.prototype.drawImage = function (source, ...args) {
+        if (typeof VideoFrame !== 'undefined' && source instanceof VideoFrame) {
+            videoFrameDraws++;
+            if (this.canvas.width === 16 && this.canvas.height === 16) nativeVideoFrameDraws++;
+        }
+        return originalDrawImage.call(this, source, ...args);
+    };
     const originalCreate = document.createElement;
     document.createElement = function (...args) {
         const element = originalCreate.apply(this, args);
@@ -46,7 +58,8 @@ function installCanvasBoundary() {
         });
     }
     window.canvasBoundary = { report: () => ({ allocations, peakCanvasPixels, peakAllCanvasPixels,
-        canvases: canvases.size, blocked: [...blocked] }) };
+        videoFrameDraws, nativeVideoFrameDraws, videoFrameSupported: typeof VideoFrame !== 'undefined',
+        imageDecoderSupported: typeof ImageDecoder !== 'undefined', canvases: canvases.size, blocked: [...blocked] }) };
 }
 
 // The same-origin fake.html/client-id setup matches toolbar.cjs. All rendering,
@@ -248,8 +261,8 @@ function browserSecurityChecks() {
         }
         monitor = setInterval(observe, 30);
         const hasRenderedPage = page => {
-            if (scenario.kind !== 'dot-path') return hasText(page);
-            // The JPEG 2000 fixture is image-only. Check decoded image pixels
+            if (scenario.kind !== 'dot-path' && scenario.kind !== 'raster-images') return hasText(page);
+            // These raster fixtures are image-only. Check decoded image pixels
             // instead of waiting for text spans that legitimately do not exist.
             const canvas = doc.querySelector(`#page-${page} .page-canvas`);
             if (!canvas?.width || !canvas?.height) return false;
@@ -333,6 +346,26 @@ function browserSecurityChecks() {
             check(metrics().boundary.allocations === allocations && metrics().boundary.blocked.length === 0,
                 'Oversized ordinary screenshot is rejected by production before any canvas allocation');
             sample('oversized ordinary export rejected');
+        } else if (scenario.kind === 'raster-images') {
+            const canvas = doc.querySelector('.page-canvas');
+            for (const probe of scenario.probes) {
+                const pixel = [...canvas.getContext('2d').getImageData(
+                    Math.floor(canvas.width * probe.x / scenario.pageSize.width),
+                    Math.floor(canvas.height * probe.y / scenario.pageSize.height), 1, 1).data];
+                check(pixel[3] === 255 && probe.rgb.every((channel, index) => Math.abs(pixel[index] - channel) <= 2),
+                    `Non-JPX preview contains the expected raster color at (${probe.x}, ${probe.y})`, { pixel, probe });
+            }
+            const start = messages.length;
+            byId('extract-images').click();
+            await waitFor(() => messages.slice(start).some(message => message.type === 'extractedImages'),
+                'Flate/JPEG XObjects and inline RGB extraction dispatch a real PNG batch');
+            const embedded = messages.slice(start).find(message => message.type === 'extractedImages');
+            check(embedded.totalFound === 3 && embedded.images.length === 3 &&
+                embedded.images.every(image => image.width === 16 && image.height === 16),
+            'All three non-JPX embedded rasters retain their native 16x16 dimensions', embedded);
+            await waitFor(() => messages.some(message => message.type === 'fixtureExtractionAcknowledged' &&
+                message.extractionId === embedded.extractionId), 'non-JPX native bitmap batch reaches the real provider writer');
+            sample('native Flate, JPEG and inline RGB image exports');
         } else if (scenario.kind === 'dot-path') {
             check(rect(container).height >= win.innerHeight / 2 && visible(doc.querySelector('.page-canvas')),
                 'Image-only PDF preview occupies its viewport and displays the complete page');
@@ -465,6 +498,52 @@ function pngDimensions(filename) {
     return { width: data.readUInt32BE(16), height: data.readUInt32BE(20) };
 }
 
+function assertRasterPixels(filename, { name, top, bottom }) {
+    const png = fs.readFileSync(filename);
+    assert.deepEqual(pngDimensions(filename), { width: 16, height: 16 }, `${name}: native image dimensions`);
+    assert.equal(png[24], 8, `${name}: 8-bit PNG channels`);
+    assert.ok(png[25] === 2 || png[25] === 6, `${name}: RGB or RGBA PNG`);
+    assert.equal(png[28], 0, `${name}: noninterlaced PNG`);
+    const channels = png[25] === 6 ? 4 : 3;
+    const chunks = [];
+    for (let offset = 8; offset < png.length;) {
+        const length = png.readUInt32BE(offset);
+        if (png.toString('ascii', offset + 4, offset + 8) === 'IDAT') chunks.push(png.subarray(offset + 8, offset + 8 + length));
+        offset += length + 12;
+    }
+    const raw = inflateSync(Buffer.concat(chunks));
+    const stride = 16 * channels;
+    assert.equal(raw.length, 16 * (stride + 1), `${name}: complete PNG pixel rows`);
+    const paeth = (left, above, corner) => {
+        const prediction = left + above - corner;
+        const distances = [Math.abs(prediction - left), Math.abs(prediction - above), Math.abs(prediction - corner)];
+        return distances[0] <= distances[1] && distances[0] <= distances[2] ? left
+            : distances[1] <= distances[2] ? above : corner;
+    };
+    let previous = Buffer.alloc(stride);
+    for (let y = 0; y < 16; y++) {
+        const offset = y * (stride + 1);
+        const filter = raw[offset];
+        assert.ok(filter <= 4, `${name}: valid PNG row filter`);
+        const row = Buffer.alloc(stride);
+        for (let x = 0; x < stride; x++) {
+            const left = x >= channels ? row[x - channels] : 0;
+            const above = previous[x];
+            const corner = x >= channels ? previous[x - channels] : 0;
+            row[x] = (raw[offset + 1 + x] + [0, left, above, Math.floor((left + above) / 2), paeth(left, above, corner)][filter]) & 255;
+        }
+        const rgb = y < 8 ? top : bottom;
+        for (let x = 0; x < 16; x++) {
+            for (let channel = 0; channel < 3; channel++) {
+                assert.ok(Math.abs(row[x * channels + channel] - rgb[channel]) <= 2,
+                    `${name}: native PNG pixel (${x}, ${y}) preserves channel ${channel}`);
+            }
+            if (channels === 4) assert.equal(row[x * channels + 3], 255, `${name}: native PNG is opaque`);
+        }
+        previous = row;
+    }
+}
+
 exports.testSecurity = async function testSecurity(extension, workspace) {
     const fixtures = path.join(workspace, 'security-fixtures');
     fs.mkdirSync(fixtures, { recursive: true });
@@ -512,8 +591,26 @@ exports.testSecurity = async function testSecurity(extension, workspace) {
             workerFallbackWarnings: result.workerFallbackWarnings,
             writes: [screenshot, embedded].map(file => ({ filename: file, ...pngDimensions(file), bytes: fs.statSync(file).size })), evidencePath });
     }
+    const raster = path.join(fixtures, 'raster-images.pdf');
+    const rasterOutput = path.join(screenshotsRoot, 'raster-images');
+    fs.writeFileSync(raster, createRasterPdf());
+    fs.rmSync(rasterOutput, { recursive: true, force: true });
+    const { result: rasterResult, evidencePath: rasterEvidence } = await runBrowserScenario(extension, workspace, raster,
+        { name: 'raster-images', kind: 'raster-images', pages: 1, pageSize: RASTER_PAGE_SIZE, probes: RASTER_PREVIEW_PROBES });
+    const rasterFiles = RASTER_IMAGES.map((image, index) => path.join(rasterOutput, `image_${String(index + 1).padStart(3, '0')}_page1_16x16.png`));
+    for (const [index, filename] of rasterFiles.entries()) {
+        await waitForFile(filename);
+        assertRasterPixels(filename, RASTER_IMAGES[index]);
+    }
+    assert.deepEqual(fs.readdirSync(rasterOutput).sort(), rasterFiles.map(filename => path.basename(filename)),
+        'Non-JPX extraction writes exactly the three original raster images');
+    summary.push({ name: 'raster-images', assertions: rasterResult.assertions.length,
+        workerFallbackWarnings: rasterResult.workerFallbackWarnings, evidencePath: rasterEvidence,
+        videoFrameDraws: rasterResult.metrics.boundary.videoFrameDraws,
+        nativeVideoFrameDraws: rasterResult.metrics.boundary.nativeVideoFrameDraws,
+        writes: rasterFiles.map(filename => ({ filename, ...pngDimensions(filename), bytes: fs.statSync(filename).size })) });
     const summaryPath = path.join(workspace, 'security-regression-results.json');
     fs.writeFileSync(summaryPath, JSON.stringify({ mode: process.env.PDF_TOOLKIT_TEST_MODE,
         vscodeVersion: vscode.version, cases: summary }, null, 2));
-    console.log(`PASS: native PDF resource/search/navigation and dot-name output boundaries; evidence: ${summaryPath}`);
+    console.log(`PASS: native PDF resource/search/navigation, dot-name output boundaries and Flate/JPEG/inline raster extraction; evidence: ${summaryPath}`);
 };

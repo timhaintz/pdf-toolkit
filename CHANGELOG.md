@@ -9,8 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Update the bundled PDF renderer from PDF.js 5.4.530 to 6.4.299, using its official compatibility build for the supported VS Code versions.
 - Require VS Code 1.118.1 or newer and align development typings with the 1.118 API. Review the minimum at release preparation using an approximately six-month compatibility window; it stays fixed between releases.
 - Test source and installed VSIX behavior on both the minimum and latest stable VS Code in Linux/Windows CI. Keep automatic VS Code typings updates within the chosen API version until the next compatibility review.
+
+### Fixed
+
+- Support PDF.js 6's VideoFrame image output when extracting embedded JPEGs, preserving their native dimensions.
+- Align PDF text-selection styles with the bundled PDF.js version.
 
 ## [2.4.1] - 2026-10-31
 

@@ -219,12 +219,13 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             ]
         };
 
-        // Get URIs for PDF.js resources
+        // Use PDF.js's compatibility build across the supported VS Code/Electron range.
+        // Its polyfills cover JavaScript features absent from the minimum host.
         const pdfJsUri = webviewPanel.webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, 'node_modules', 'pdfjs-dist', 'build', 'pdf.min.mjs')
+            vscode.Uri.joinPath(this.context.extensionUri, 'node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.min.mjs')
         );
         const pdfWorkerUri = webviewPanel.webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, 'node_modules', 'pdfjs-dist', 'build', 'pdf.worker.min.mjs')
+            vscode.Uri.joinPath(this.context.extensionUri, 'node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.worker.min.mjs')
         );
         const pdfWasmUri = webviewPanel.webview.asWebviewUri(
             vscode.Uri.joinPath(this.context.extensionUri, 'node_modules', 'pdfjs-dist', 'wasm')
@@ -1194,14 +1195,17 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             display: none;
         }
 
-        /* Text layer — official PDF.js TextLayer CSS (from pdfjs-dist/web/pdf_viewer.css) */
+        /* Text layer — adapted from bundled PDF.js 6.4's web/pdf_viewer.css. */
         .textLayer {
+            color-scheme: only light;
             position: absolute;
             text-align: initial;
             inset: 0;
             overflow: clip;
             opacity: 1;
             line-height: 1;
+            letter-spacing: normal;
+            word-spacing: normal;
             -webkit-text-size-adjust: none;
             -moz-text-size-adjust: none;
             text-size-adjust: none;
@@ -1217,6 +1221,9 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             white-space: pre;
             cursor: text;
             transform-origin: 0% 0%;
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            user-select: text;
         }
 
         .textLayer {
@@ -1239,8 +1246,16 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             display: contents;
         }
 
+        .textLayer span[role="img"] {
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            user-select: none;
+            cursor: default;
+        }
+
         .textLayer ::selection {
             background: rgba(0, 0, 255, 0.25);
+            color: transparent;
         }
 
         .textLayer br::selection {
@@ -1741,7 +1756,7 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                     continue;
                 }
                 if (generation !== searchGeneration) return;
-                // PDF.js 5.4 TextLayer creates at most 100,001 text divs per page.
+                // The bundled PDF.js TextLayer creates at most 100,001 text divs per page.
                 // Search the same renderable range, including empty text items.
                 const strings = textContent.items.filter(item => typeof item.str === 'string').slice(0, 100001).map(item => item.str);
                 let pageText = '';
@@ -2183,25 +2198,22 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
                     }
                 }
 
-                // Helper: extract data URL from an imgData object (handles v5 ImageBitmap, raw data, and src)
+                // Helper: extract data URL from PDF.js image sources, raw data, and src.
                 function resolveImageData(imgData) {
                     if (!imgData) return null;
 
                     let width  = imgData.width;
                     let height = imgData.height;
 
-                    // PDF.js v5: ImageBitmap returned directly
-                    if (typeof ImageBitmap !== 'undefined' && imgData instanceof ImageBitmap) {
-                        width = imgData.width;
-                        height = imgData.height;
-                        return { dataUrl: imageToDataUrl(imgData, width, height), width, height };
-                    }
-
-                    // PDF.js v5: object with a .bitmap property (ImageBitmap)
-                    if (imgData.bitmap && typeof ImageBitmap !== 'undefined' && imgData.bitmap instanceof ImageBitmap) {
-                        width  = imgData.bitmap.width;
-                        height = imgData.bitmap.height;
-                        return { dataUrl: imageToDataUrl(imgData.bitmap, width, height), width, height };
+                    // PDF.js 6's ImageDecoder JPEG path supplies VideoFrame objects.
+                    // Draw without closing either source type: PDF.js owns their lifetime.
+                    const source = imgData.bitmap || imgData;
+                    const isVideoFrame = typeof VideoFrame !== 'undefined' && source instanceof VideoFrame;
+                    const isImageBitmap = typeof ImageBitmap !== 'undefined' && source instanceof ImageBitmap;
+                    if (isVideoFrame || isImageBitmap) {
+                        width = isVideoFrame ? source.displayWidth : source.width;
+                        height = isVideoFrame ? source.displayHeight : source.height;
+                        return { dataUrl: imageToDataUrl(source, width, height), width, height };
                     }
 
                     // Legacy: already a data URL (JPEG)
