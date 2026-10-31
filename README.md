@@ -335,7 +335,7 @@ Or change it directly in VS Code Settings: search for "PDF Toolkit Screenshots F
 ## Technical Details
 
 This extension uses:
-- **PDF.js**: Mozilla PDF rendering library
+- **PDF.js 6**: Mozilla PDF rendering library
 - **VS Code Custom Editor API**: For seamless editor integration
 - **Webview**: For rendering PDF content
 
