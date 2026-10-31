@@ -1184,6 +1184,16 @@ export class PdfEditorProvider implements vscode.CustomReadonlyEditorProvider<Pd
             display: block;
         }
 
+        /* PDF.js text measurement creates this helper even on image-only pages. */
+        .hiddenCanvasElement {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 0;
+            height: 0;
+            display: none;
+        }
+
         /* Text layer — official PDF.js TextLayer CSS (from pdfjs-dist/web/pdf_viewer.css) */
         .textLayer {
             position: absolute;

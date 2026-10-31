@@ -92,6 +92,13 @@ function browserSecurityChecks() {
             scrollTop: doc?.getElementById('pdf-container')?.scrollTop,
             scrollHeight: doc?.getElementById('pdf-container')?.scrollHeight,
             container: doc?.getElementById('pdf-container')?.getBoundingClientRect().toJSON(),
+            layout: doc && ['body', '.main-container', '#pdf-toolbar', '#pdf-container'].map(selector => {
+                const element = doc.querySelector(selector);
+                const style = win.getComputedStyle(element);
+                return { selector, bounds: element.getBoundingClientRect().toJSON(), height: style.height,
+                    flex: style.flex, minHeight: style.minHeight, alignItems: style.alignItems,
+                    scrollTop: element.scrollTop, inlineStyle: element.getAttribute('style') };
+            }),
             selected: [...doc?.querySelectorAll('.highlight.selected') || []].map(element => ({
                 page: element.closest('.page-wrapper')?.dataset.page, text: element.textContent,
                 bounds: element.getBoundingClientRect().toJSON(), connected: element.isConnected
@@ -322,6 +329,8 @@ function browserSecurityChecks() {
                 'Oversized ordinary screenshot is rejected by production before any canvas allocation');
             sample('oversized ordinary export rejected');
         } else if (scenario.kind === 'dot-path') {
+            check(rect(container).height >= win.innerHeight / 2 && visible(doc.querySelector('.page-canvas')),
+                'Image-only PDF preview occupies its viewport and displays the complete page');
             let start = messages.length;
             byId('screenshot-current').click();
             await waitFor(() => messages.slice(start).some(message => message.type === 'extractedPages' && message.pages === 1),
