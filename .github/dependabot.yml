@@ -8,6 +8,13 @@ updates:
       time: '09:00'
       timezone: Australia/Melbourne
     open-pull-requests-limit: 5
+    # Review the supported VS Code API version when preparing a release.
+    # Keep patch updates eligible without raising the minimum automatically.
+    ignore:
+      - dependency-name: '@types/vscode'
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
     groups:
       npm-security:
         applies-to: security-updates

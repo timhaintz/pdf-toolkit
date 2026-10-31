@@ -18,6 +18,27 @@ npm test
 composite layout. These tests use a VS Code adapter; the separate integration
 suite exercises an actual VS Code process and PDF.js rendering.
 
+## VS Code compatibility policy
+
+The next release requires **VS Code 1.118.1 or newer**. When preparing a release,
+review the minimum using an approximately six-month window: select a stable
+version available around six months before that release, align `engines.vscode`
+and `@types/vscode`, and test both the minimum and latest stable VS Code. Keep
+the selected minimum fixed between releases. This does not require a regular
+release schedule or an automatic calendar-based version increase.
+
+For the 1 November 2026 review, [VS Code 1.118](https://code.visualstudio.com/updates/v1_118)
+was released on 29 April, and [1.118.1](https://github.com/microsoft/vscode/releases/tag/1.118.1)
+was available around 1 May. The manifest uses `^1.118.1` and the typings use
+`~1.118.0`, allowing fixes within that API version. Dependabot ignores newer
+minor/major versions of `@types/vscode`; review any security fix that requires a
+newer API version explicitly. Other dependency update rules are unchanged.
+
+At a future compatibility review, update the manifest, lockfile, README,
+publishing examples and changelog together. CI derives the minimum test version
+from the manifest. Document the raised requirement before publishing a new
+versioned VSIX; merging this change does not change the published 2.4.1 package.
+
 ## Try changes interactively
 
 Open this repository in VS Code, select **Run Extension (temporary profile)** in
@@ -71,15 +92,34 @@ official test runner downloads a stable VS Code build. Override the executable
 with `PDF_TOOLKIT_VSCODE_EXECUTABLE` if necessary. On Linux with no display, use
 `xvfb-run -a npm run test:integration -- --packaged`. CI runs these checks on
 Linux and Windows, in addition to lint, Node tests, packaging, and dependency
-audit. The Windows job downloads and starts real VS Code, installs the local
+audit. Both operating systems run source and installed-package integration on
+the latest stable and minimum supported VS Code, reusing the same VSIX. The
+Windows job downloads and starts real VS Code, installs the local
 VSIX, and verifies rendered image dimensions and colors. It runs on a
 GitHub-hosted machine, so contributors do not need their own Windows computer.
 
 To check a particular supported VS Code release, select it explicitly, for example:
 
 ```bash
-PDF_TOOLKIT_VSCODE_VERSION=1.96.0 npm run test:integration
+PDF_TOOLKIT_VSCODE_VERSION=1.118.1 npm run test:integration
 ```
+
+Set `PDF_TOOLKIT_VSCODE_VERSION=stable` to test the latest stable build explicitly,
+including on macOS where the default is the installed application. An explicit
+`PDF_TOOLKIT_VSCODE_EXECUTABLE` takes precedence over the version; clear it when
+selecting a downloadable version.
+
+For an explicitly requested numeric version, the integration suite checks the
+running `vscode.version` before its functional tests. A cached download can have
+been updated since it was first extracted; its directory name alone is not
+version evidence. If this check fails, close that test instance, archive the
+changed cache directory and download the requested build again.
+
+For visible testing, launch the executable with its disposable User-data and
+extensions directories before selecting it in a desktop controller. Selecting
+a closed Code application can launch its default profile, whose updater may
+replace the cached application. Confirm the actual running version and active
+installed extension before recording a minimum-version result.
 
 The package is `artifacts/pdf-toolkit-<version>.vsix`. To select another local
 package, run `npm run test:integration -- --vsix /absolute/path/to/extension.vsix`.
@@ -669,3 +709,33 @@ remains unpublished at this correction's start; keep it for the replacement.
 
 The rebuilt VSIX is a new candidate with a new SHA256. Record fresh package,
 installed-version and icon checks and CI evidence before the manual retry.
+
+### Six-month compatibility baseline: 1 November 2026
+
+Selected VS Code 1.118.1, available around 1 May, as the next release's minimum.
+The manifest, locked 1.118 API typings, README and publishing guide agree. CI
+tests source and the same installed VSIX on minimum/latest VS Code for both
+Linux and Windows; the minimum is derived from the manifest.
+
+On macOS 27.0.1 / Node 22.22.2, lint, all 133 Node tests, dependency audit
+(zero reported vulnerabilities), asset validation and separate VSIX packaging
+passed. Native source and installed-package integration passed on actual VS Code
+1.118.1, including 414 toolbar checks per mode, PDF/JPX rendering, screenshots,
+composites, multiple PDFs and resource/search/output-boundary regressions.
+
+An additional test deliberately requested 1.118.1 with an auto-updated cached
+1.143.1 application. The new actual-version assertion correctly rejected that
+run before the functional tests. Restore the requested cache and run the same
+suite again; do not count the cache directory name as version evidence.
+
+The test-only package is
+`artifacts/pdf-toolkit-2.4.1-pr18-compatibility-candidate.vsix`, SHA256
+`48dcc922ee642e8965f911eeae30c7f5e15192b29a3d7afa1735cca0b4f5719f`.
+All 394 compiled/PDF.js assets match the published 2.4.1 VSIX; differences are
+limited to the manifest and documentation. The retained published package
+remains unchanged. This candidate is not a new Marketplace release; choose a
+higher version and finish release preparation before uploading. Record final
+PR/head CI and minimum/latest outcomes in the PR conversation. Automated
+integration does not establish Copilot/model behavior or Windows manual visual
+coverage.
+
