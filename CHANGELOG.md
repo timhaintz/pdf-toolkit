@@ -5,6 +5,15 @@ All notable changes to PDF Toolkit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Keep large PDF previews within finite page and pixel budgets, loading pages as needed while preserving full-document search and navigation. Cancel superseded rendering and release evicted canvas/text resources.
+- Keep image-only PDFs visible by applying PDF.js's upstream style for its hidden text-measurement canvas.
+- Bound ordinary screenshot and embedded-image export allocations and encoded batches, with clear errors instead of oversized or partial exports. Preview downsampling does not change supported screenshot quality or native embedded-image dimensions.
+- Keep PDF-derived export directories inside the configured screenshots root, including dot-only names such as `...pdf`.
+
 ## [2.4.0] - 2026-10-03
 
 ### Added
