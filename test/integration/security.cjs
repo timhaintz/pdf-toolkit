@@ -240,9 +240,18 @@ function browserSecurityChecks() {
             samples.push({ label: `${label} text alignment`, ...detail });
         }
         monitor = setInterval(observe, 30);
-        await waitFor(() => byId('page-count')?.textContent === String(scenario.pages) && hasText(1), 'real PDF.js initial preview');
-        await waitFor(() => Array.from({ length: Math.min(12, scenario.pages) }, (_, index) => hasText(index + 1)).every(Boolean),
-            'the complete initial raster and text render window');
+        const hasRenderedPage = page => {
+            if (scenario.kind !== 'dot-path') return hasText(page);
+            // The JPEG 2000 fixture is image-only. Check decoded image pixels
+            // instead of waiting for text spans that legitimately do not exist.
+            const canvas = doc.querySelector(`#page-${page} .page-canvas`);
+            if (!canvas?.width || !canvas?.height) return false;
+            const pixel = canvas.getContext('2d').getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data;
+            return pixel[3] > 0 && (pixel[0] < 240 || pixel[1] < 240 || pixel[2] < 240);
+        };
+        await waitFor(() => byId('page-count')?.textContent === String(scenario.pages) && hasRenderedPage(1), 'real PDF.js initial preview');
+        await waitFor(() => Array.from({ length: Math.min(12, scenario.pages) }, (_, index) => hasRenderedPage(index + 1)).every(Boolean),
+            'the complete initial raster and available text render window');
         sample('initial load');
 
         if (scenario.kind === 'many-pages') {
