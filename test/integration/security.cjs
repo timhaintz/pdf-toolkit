@@ -65,9 +65,12 @@ function browserSecurityChecks() {
     let peak = { wrappers: 0, canvases: 0, textLayers: 0, pixels: 0 };
     const isWorkerFallbackWarning = message => {
         if (message.type !== 'fixtureError' ||
-            message.message !== `Uncaught TypeError: Failed to fetch dynamically imported module: ${window.expectedWorkerUri}` ||
             typeof message.filename !== 'string' || !message.filename.startsWith('blob:') || !win) return false;
         try {
+            // vscode.Uri escapes '+' in the resource authority; Chromium's
+            // import error reports the URL parser's canonical authority.
+            const expectedWorkerUri = new URL(window.expectedWorkerUri).href;
+            if (message.message !== `Uncaught TypeError: Failed to fetch dynamically imported module: ${expectedWorkerUri}`) return false;
             const blobSource = new URL(message.filename.slice(5));
             return blobSource.protocol === win.location.protocol && blobSource.host === win.location.host;
         } catch { return false; }
@@ -96,6 +99,9 @@ function browserSecurityChecks() {
             iframe: frame.getBoundingClientRect().toJSON(),
             viewport: { width: win?.innerWidth, height: win?.innerHeight, parentWidth: window.innerWidth,
                 parentHeight: window.innerHeight, parentScrollTop: document.scrollingElement?.scrollTop },
+            workerResource: { configured: window.expectedWorkerUri,
+                canonical: window.expectedWorkerUri ? new URL(window.expectedWorkerUri).href : undefined,
+                frameLocation: win?.location.href, frameProtocol: win?.location.protocol, frameHost: win?.location.host },
             browserErrors: messages.filter(message => ['fixtureError', 'fixtureRejection', 'fixtureCspViolation'].includes(message.type)),
             boundary: win?.canvasBoundary?.report() };
     };
