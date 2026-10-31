@@ -65,7 +65,7 @@ Required files:
 | `README.md` | Packaged content for the Marketplace Details page |
 | `CHANGELOG.md` | Packaged release history for VS Code and Marketplace release-notes surfaces |
 | `LICENSE` | Required for publishing |
-| `images/icon.png` | Extension icon (at least 128×128px) |
+| `images/icon.png` | Extension icon (at least 128×128px; no larger than 1024 KB / 1,048,576 bytes) |
 | `images/pdf-toolkit-workflow.gif` | Recorded walkthrough referenced by the README |
 
 Include the current README and changelog in the tested VSIX. They travel with the
@@ -110,6 +110,11 @@ npm run package:vsix
 This runs lint and Node tests and writes
 `artifacts/pdf-toolkit-2.4.1.vsix` for the current candidate. Test source and the
 actual installed VSIX in temporary VS Code profiles and workspaces:
+
+Packaging also rejects an icon above the Marketplace's 1024 KB limit before
+building the VSIX. Check the uncompressed icon asset size, not the compressed
+entry size inside the ZIP. A successful local install does not establish that
+Marketplace upload validation will accept every package asset.
 
 ```powershell
 npm run test:integration -- --packaged
