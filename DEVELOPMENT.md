@@ -728,6 +728,13 @@ An additional test deliberately requested 1.118.1 with an auto-updated cached
 run before the functional tests. Restore the requested cache and run the same
 suite again; do not count the cache directory name as version evidence.
 
+After restoring the cache, source and installed-package runs passed again with
+the actual-version assertion enabled. Visible installed-package testing also
+passed: About confirmed VS Code 1.118.1 / Node 22.22.1, sample.pdf rendered,
+Next moved to page 2, the Screenshot actions were available, and the branding
+link opened the installed VSIX details with the updated 1.118.1 requirement.
+The disposable test app was closed afterwards.
+
 The test-only package is
 `artifacts/pdf-toolkit-2.4.1-pr18-compatibility-candidate.vsix`, SHA256
 `48dcc922ee642e8965f911eeae30c7f5e15192b29a3d7afa1735cca0b4f5719f`.
@@ -738,4 +745,3 @@ higher version and finish release preparation before uploading. Record final
 PR/head CI and minimum/latest outcomes in the PR conversation. Automated
 integration does not establish Copilot/model behavior or Windows manual visual
 coverage.
-
