@@ -27,10 +27,13 @@ function createHarness(settings = {}, behavior = {}) {
             joinPath: (base, ...segments) => makeUri(path.join(base.fsPath, ...segments))
         },
         workspace: {
-            workspaceFolders: [{ uri: makeUri(fixturePath('workspace')) }],
+            workspaceFolders: behavior.noWorkspace ? undefined : [{ uri: makeUri(fixturePath('workspace')) }],
             getConfiguration: () => ({ get: (key, fallback) => settings[key] ?? fallback }),
             fs: {
-                createDirectory: async uri => { directories.push(uri.fsPath); },
+                createDirectory: async uri => {
+                    if (behavior.directoryFailure) throw behavior.directoryFailure;
+                    directories.push(uri.fsPath);
+                },
                 stat: async uri => {
                     if (!writes.has(uri.fsPath)) throw new Error('File not found');
                     return {};
@@ -92,6 +95,7 @@ function createHarness(settings = {}, behavior = {}) {
                 postMessage: message => {
                     messages.push(message);
                     operations.push({ type: 'message', message });
+                    if (behavior.beforePostMessage) return behavior.beforePostMessage(message);
                     return Promise.resolve(behavior.postMessageResult ?? true);
                 },
                 onDidReceiveMessage: listener => { onMessage = listener; }
@@ -557,4 +561,146 @@ test('a webview that cannot receive messages rejects its composite export prompt
     assert.equal(writes.size, 0);
     assert.deepEqual(provider.getExtractedPdfs(), []);
     assert.equal(pdf.messages.at(-1).type, 'compositeCancel');
+});
+
+for (const kind of ['extractedPages', 'extractedImages']) {
+    test(`${kind} keeps PDF-derived destinations inside the configured screenshots root`, async t => {
+        for (const noWorkspace of [false, true]) {
+            for (const screenshotsFolder of ['PDF-Screenshots', path.join('custom', 'images')]) {
+                await t.test(`${noWorkspace ? 'PDF parent' : 'workspace'} / ${screenshotsFolder}`, async () => {
+                    const root = fixturePath(noWorkspace ? 'documents' : 'workspace', screenshotsFolder);
+                    for (const [filename, leaf] of [
+                        ['...pdf', 'document'], ['..pdf', 'document'], ['.pdf', '.pdf'],
+                        [' .pdf', 'document'], ['.. .pdf', 'document'], ['.\t.pdf', 'document'],
+                        ['ordinary.pdf', 'ordinary'], ['s.pdf', 's'], ['report.PDF', 'report.PDF'], ['研究 paper #1.pdf', '研究 paper #1']
+                    ]) {
+                        const { provider, openPdf, writes, directories } = createHarness({ screenshotsFolder }, { noWorkspace });
+                        const pdf = await openPdf(filename);
+                        const data = 'data:image/png;base64,cGl4ZWw=';
+                        await pdf.receive(kind === 'extractedPages'
+                            ? { type: kind, pages: [{ page: 1, data }], format: 'png' }
+                            : { type: kind, images: [{ index: 1, page: 1, width: 16, height: 16, data }], totalFound: 1 });
+                        const expected = path.join(root, leaf);
+                        assert.equal(writes.size, 1, `${filename}: one image saved`);
+                        assert.equal(path.dirname([...writes.keys()][0]), expected, `${filename}: correct PDF child`);
+                        for (const output of [...directories, ...writes.keys()]) {
+                            if (output === root) continue; // The root itself is created by ordinary screenshots.
+                            const relative = path.relative(root, output);
+                            assert.ok(relative && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative),
+                                `${filename}: ${output} must remain strictly beneath ${root}`);
+                        }
+                        if (kind === 'extractedPages') {
+                            assert.equal(provider.getExtractedPdfs()[0].path, expected, 'history uses the contained destination');
+                        }
+                    }
+                });
+            }
+        }
+    });
+}
+
+const extractedBatch = (kind, extractionId) => kind === 'extractedPages'
+    ? { type: kind, extractionId, format: 'png', pages: [{ page: 1, data: 'data:image/png;base64,cGl4ZWw=' }] }
+    : { type: kind, extractionId, totalFound: 1, images: [{ index: 1, page: 1, width: 16, height: 16, data: 'data:image/png;base64,cGl4ZWw=' }] };
+
+for (const kind of ['extractedPages', 'extractedImages']) {
+    test(`${kind} acknowledges after host writes without awaiting completion notification dismissal`, async () => {
+        const write = deferred();
+        const { openPdf, writes, information } = createHarness({}, {
+            beforeWrite: () => write.promise,
+            informationResult: new Promise(() => {})
+        });
+        const pdf = await openPdf();
+        let finished = false;
+        const receiving = pdf.receive(extractedBatch(kind, 'extraction-1')).then(() => { finished = true; });
+        await nextTurn();
+        assert.equal(writes.size, 0);
+        assert.equal(finished, false);
+        assert.equal(pdf.messages.length, 0, 'Host must retain the guard while holding an encoded batch for saving');
+        write.resolve();
+        await nextTurn();
+        assert.equal(writes.size, 1);
+        assert.equal(finished, true, 'Optional completion notification must not hold the batch guard');
+        assert.equal(information.length, 1);
+        assert.deepEqual(pdf.messages, [{ type: 'extractionComplete', extractionId: 'extraction-1' }]);
+        await receiving;
+    });
+
+    test(`${kind} legacy messages save successfully without an acknowledgement`, async () => {
+        const { openPdf, writes } = createHarness();
+        const pdf = await openPdf();
+        await pdf.receive(extractedBatch(kind));
+        assert.equal(writes.size, 1);
+        assert.equal(pdf.messages.length, 0);
+    });
+}
+
+test('ordinary host acknowledgement waits for the overwrite decision and is sent after cancellation', async () => {
+    for (const choice of ['Overwrite All', undefined]) {
+        const decision = deferred();
+        const { openPdf, writes, warnings } = createHarness({}, { warningChoice: decision.promise });
+        const pdf = await openPdf();
+        const destination = fixturePath('workspace', 'PDF-Screenshots', 'example', 'page_001.png');
+        writes.set(destination, Buffer.from('existing screenshot'));
+        const receiving = pdf.receive(extractedBatch('extractedPages', 'extraction-1'));
+        await nextTurn();
+        assert.equal(warnings.length, 1);
+        assert.equal(pdf.messages.length, 0);
+        assert.equal(writes.get(destination).toString(), 'existing screenshot');
+        decision.resolve(choice);
+        await receiving;
+        assert.deepEqual(pdf.messages, [{ type: 'extractionComplete', extractionId: 'extraction-1' }]);
+        assert.equal(writes.get(destination).toString(), choice ? 'pixel' : 'existing screenshot');
+    }
+});
+
+test('host save failures acknowledge the failed operation and allow a later batch', async () => {
+    for (const kind of ['extractedPages', 'extractedImages']) {
+        const behavior = kind === 'extractedPages'
+            ? { writeFailure: new Error('Disk full') }
+            : { directoryFailure: new Error('Cannot create destination') };
+        const { openPdf, writes, errors } = createHarness({}, behavior);
+        const pdf = await openPdf();
+        await pdf.receive(extractedBatch(kind, 'extraction-1'));
+        assert.equal(writes.size, 0);
+        assert.equal(errors.length, 1);
+        assert.match(errors[0], /Failed to save extracted/);
+        assert.deepEqual(pdf.messages, [{ type: 'extractionComplete', extractionId: 'extraction-1' }]);
+        behavior.writeFailure = undefined;
+        behavior.directoryFailure = undefined;
+        await pdf.receive(extractedBatch(kind, 'extraction-2'));
+        assert.equal(writes.size, 1);
+        assert.deepEqual(pdf.messages.at(-1), { type: 'extractionComplete', extractionId: 'extraction-2' });
+    }
+});
+
+test('existing embedded-image result actions do not delay host acknowledgement', async () => {
+    const { openPdf, writes, warnings } = createHarness({}, { warningChoice: new Promise(() => {}) });
+    const pdf = await openPdf();
+    writes.set(fixturePath('workspace', 'PDF-Screenshots', 'example', 'image_001_page1_16x16.png'), Buffer.from('existing'));
+    let finished = false;
+    const receiving = pdf.receive(extractedBatch('extractedImages', 'extraction-1')).then(() => { finished = true; });
+    await nextTurn();
+    assert.equal(warnings.length, 1);
+    assert.equal(finished, true);
+    assert.deepEqual(pdf.messages, [{ type: 'extractionComplete', extractionId: 'extraction-1' }]);
+    await receiving;
+});
+
+test('empty embedded-image recovery requests a screenshot only after its acknowledgement', async () => {
+    const acknowledgement = deferred();
+    const { openPdf, information } = createHarness({}, {
+        informationResult: 'Screenshot Current Page',
+        beforePostMessage: message => message.type === 'extractionComplete' ? acknowledgement.promise : Promise.resolve(true)
+    });
+    const pdf = await openPdf();
+    const receiving = pdf.receive({ type: 'extractedImages', extractionId: 'extraction-1', images: [], totalFound: 0 });
+    await nextTurn();
+    assert.deepEqual(pdf.messages, [{ type: 'extractionComplete', extractionId: 'extraction-1' }]);
+    assert.equal(information.length, 0, 'Recovery must wait until the host has acknowledged the empty batch');
+    acknowledgement.resolve(true);
+    await receiving;
+    await nextTurn();
+    assert.deepEqual(pdf.messages.map(message => message.type), ['extractionComplete', 'extractPages']);
+    assert.deepEqual(pdf.messages[1].pages, [1]);
 });
