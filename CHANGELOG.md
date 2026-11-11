@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Update the bundled PDF renderer to PDF.js 6.5.438, including upstream image conversion, rendering, font and malformed-document fixes.
 - Update the VSIX packaging tool to 4.1.0 while retaining the patched `minimatch` dependency across packager updates.
 
 ## [3.0.0] - 2026-11-01

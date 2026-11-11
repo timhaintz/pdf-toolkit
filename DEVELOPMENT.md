@@ -895,3 +895,55 @@ for administrators. Pull requests are required with zero mandatory approving
 reviews; force pushes and deletion are blocked. The existing PR was reported
 behind main before its refreshed branch was pushed. Keep before/after settings
 and recovery evidence under ignored `.vscode-test/pr25-2026-11-01/` paths.
+
+### Dependency maintenance local QA: 12 November 2026
+
+Reviewed PR #28's CodeQL action update from 4.39.1 to 4.39.3 against the upstream
+release tag. A fresh locked install, lint, compilation, all 135 Node tests and
+dependency audit passed locally on Node 22.22.2, with zero reported vulnerabilities.
+All four required GitHub checks had already passed on that exact PR head; PR #28
+merged normally as `f13a100f7d544ecfb921f8843ef8847e307bd95f` without changing
+main's protection.
+
+Updated PR #29 against that main commit and upgraded the bundled PDF.js from
+6.4.299 to 6.5.438. The official legacy main/worker builds remain in use. Upstream
+text-layer CSS is unchanged, and the new optional renderer worker is not enabled
+by this extension. Fresh locked installation, dependency resolution, lint,
+compilation and all 135 Node tests passed; the dependency audit reports zero
+vulnerabilities.
+
+Source and installed-VSIX integration passed on macOS with both the minimum
+VS Code 1.118.1 and downloaded latest stable 1.146.0. Each of the four runs passed
+414 toolbar assertions and 99 browser resource/search/navigation, output-path
+and raster-extraction assertions. They also verified real JPEG 2000/WASM rendering,
+PNG screenshots, grid/vertical/grouped composites and multiple PDFs. Each raster
+fixture exercised a native VideoFrame draw and checked the three 16x16 JPEG/RGB/
+inline extraction outputs. The synthetic safety fixtures retain their previously
+documented local worker-fallback limitation.
+
+Visible installed-VSIX checks used the minimum host with public TraceMonkey and
+NASA Artemis PDFs: text and diagrams at 100% and 50% zoom, search highlights and
+next match (`JavaScript`, 42 matches), clockwise/counter-clockwise rotation, dark
+mode, next-page navigation and outline display. Custom JPEG export of TraceMonkey
+pages 2 and 4 at 144 DPI produced readable 1836x2376 images. Repeating the export
+reported that both files already existed and preserved their hashes and modification
+times. Artemis photo rendering and native extraction passed: all 73 extracted PNGs
+have the same filenames and bytes as the retained PR #19 baseline, including the
+675x641 astronaut image and 574x820 rocket image. This run does not add manual
+text-selection, CJK-specific, Windows/Linux desktop or Copilot/model coverage.
+
+Test-only package: `artifacts/pdf-toolkit-3.0.0-pr29-pdfjs6.5-candidate.vsix`,
+11,322,591 bytes, SHA256
+`7effbe760730f9cbf785bcde1338529841d1d6f3a03d313b022e13f71133e827`.
+All six compiled runtime files match published 3.0.0; all 570 bundled PDF.js assets
+match installed 6.5.438. Archive contents and Marketplace icon size passed review,
+and the published 3.0.0 artifact is preserved. This candidate is not a versioned
+Marketplace release.
+
+Evidence is retained under ignored `.vscode-test/pr-maintenance-2026-11-12/` and
+the integration run directories linked from its logs. Record these local results
+on PR #29 while waiting for GitHub Actions credits. Local macOS tests do not
+satisfy the four app-bound GitHub required checks: leave the PR open and main's
+protection unchanged until hosted checks can complete and merging is resumed.
+PRs #20 and #26 remain deferred under the existing compiler/linter and minimum
+extension-host runtime compatibility policies.
